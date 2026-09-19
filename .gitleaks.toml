@@ -1,0 +1,11 @@
+title = "Parimit secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Known non-secret literals used only by legacy migration attack fixtures"
+regexes = [
+  '''^legacy-v1-row$''',
+  '''^legacy-v1-attack-fixture-secret$''',
+]
