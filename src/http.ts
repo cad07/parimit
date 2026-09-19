@@ -51,6 +51,26 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   }
 }
 
+function requireJsonObject(
+  value: unknown,
+  allowedProperties: readonly string[],
+): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ParimitError("VALIDATION_ERROR", "Request body must be a JSON object", 400);
+  }
+  const unknownProperties = Object.keys(value).filter(
+    (property) => !allowedProperties.includes(property),
+  );
+  if (unknownProperties.length > 0) {
+    throw new ParimitError(
+      "VALIDATION_ERROR",
+      `Request body contains unknown properties: ${unknownProperties.sort().join(", ")}`,
+      400,
+    );
+  }
+  return value as Record<string, unknown>;
+}
+
 function requireDemoActor(request: IncomingMessage): { actorId: string; actorRole: ActorRole } {
   const actor = request.headers["x-parimit-actor"];
   const role = request.headers["x-parimit-role"];
@@ -90,14 +110,18 @@ function serveStatic(publicDirectory: string, pathname: string, response: Server
   return true;
 }
 
-function parseIntentPath(pathname: string): { id: string; action?: string } | null {
-  const match = pathname.match(/^\/v1\/intents\/([^/]+)(?:\/(cancel|approvals|audit|audit\/verify))?$/);
-  if (!match) return null;
+function decodePathSegment(value: string): string {
   try {
-    return { id: decodeURIComponent(match[1]!), ...(match[2] ? { action: match[2] } : {}) };
+    return decodeURIComponent(value);
   } catch {
     throw new ParimitError("INVALID_PATH", "Malformed proposal identifier", 400);
   }
+}
+
+function parseIntentPath(pathname: string): { id: string; action?: string } | null {
+  const match = pathname.match(/^\/v1\/intents\/([^/]+)(?:\/(cancel|approvals|audit|audit\/verify))?$/);
+  if (!match) return null;
+  return { id: decodePathSegment(match[1]!), ...(match[2] ? { action: match[2] } : {}) };
 }
 
 export interface HttpHandlerOptions {
@@ -146,10 +170,16 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
         if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0 || limit > 200)) {
           throw new ParimitError("VALIDATION_ERROR", "limit must be an integer from 1 to 200", 400);
         }
+        const agentId = url.searchParams.get("agent_id");
+        if (agentId !== null && (agentId.length === 0 || agentId.length > 128)) {
+          throw new ParimitError(
+            "VALIDATION_ERROR",
+            "agent_id must be a non-empty string of at most 128 characters",
+            400,
+          );
+        }
         const intents = service.listIntents({
-          ...(url.searchParams.get("agent_id")
-            ? { agentId: url.searchParams.get("agent_id") as string }
-            : {}),
+          ...(agentId === null ? {} : { agentId }),
           ...(status ? { status } : {}),
           ...(limit ? { limit } : {}),
         });
@@ -170,13 +200,9 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
 
       const demoObservation = pathname.match(/^\/v1\/demo\/intents\/([^/]+)\/observations$/);
       if (demoObservation && method === "POST") {
-        const body = await readJson(request);
-        if (typeof body !== "object" || body === null || Array.isArray(body)) {
-          throw new ParimitError("VALIDATION_ERROR", "Request body must be a JSON object", 400);
-        }
-        const record = body as Record<string, unknown>;
+        const record = requireJsonObject(await readJson(request), ["status", "provider_reference"]);
         const intent = service.recordMockObservation(
-          decodeURIComponent(demoObservation[1]!),
+          decodePathSegment(demoObservation[1]!),
           record.status,
           record.provider_reference,
         );
@@ -200,15 +226,12 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
       }
       if (intentPath && method === "POST" && intentPath.action === "approvals") {
         const actor = requireDemoActor(request);
-        const body = await readJson(request);
-        if (typeof body !== "object" || body === null || Array.isArray(body)) {
-          throw new ParimitError("VALIDATION_ERROR", "Request body must be a JSON object", 400);
-        }
+        const body = requireJsonObject(await readJson(request), ["decision"]);
         const intent = service.approveIntent(
           intentPath.id,
           actor.actorId,
           actor.actorRole,
-          (body as Record<string, unknown>).decision,
+          body.decision,
         );
         sendJson(response, 200, { data: intent, warning: DEMO_AUTH_WARNING });
         return;

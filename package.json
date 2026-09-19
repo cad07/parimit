@@ -1,6 +1,6 @@
 {
   "name": "parimit",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0-alpha.1",
   "description": "A non-dispatchable payment-intent boundary that gives AI agents bounded authority.",
   "type": "module",
   "private": true,

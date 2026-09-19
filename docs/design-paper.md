@@ -139,7 +139,7 @@ Audit events include the prior event hash and a SHA-256 hash of the canonical ev
 
 ### 6.4 State-consistency verification
 
-The alpha integrity verifier recomputes the versioned proposal digest, verifies individual decision HMACs and audit links, compares the initial audit policy snapshot with the stored policy, matches each decision row to exactly one review event, derives the current lifecycle state from events, and checks that authorization has the configured number of valid distinct approvals. Read and mutation paths fail closed when the combined report is invalid. Adversarial tests cover bound policy-field changes, forged authorization status, and deletion of an approval after authorization.
+The alpha integrity verifier recomputes the versioned proposal digest, verifies decision HMACs and audit links, compares the initial audit policy snapshot with stored policy, matches decisions to review events, derives lifecycle state from events, and checks the approval threshold. It also reconciles ordered mock-observation rows with audit evidence for count, status, provider reference, source, timestamp, retry/no-money flags, and, starting in alpha.1, observation ID. Read and mutation paths fail closed when the combined report is invalid. Adversarial tests cover bound policy fields, forged authorization, deleted approvals, and observation edits, deletion, insertion, and reordering. Legacy observations without IDs remain readable only when all fields, order, and count match.
 
 This is still local consistency evidence, not durable authorization proof. A privileged attacker who can rewrite the database, event chain, and protected secret can manufacture a self-consistent history. The aggregate receipt is reconstructed after verification rather than signed as one independently portable object. A stronger future design would add a complete versioned authorization envelope with tenant, state version, actor set, timestamps, nonce, one-time consumption state, asymmetric verification, and an external audit anchor.
 
@@ -234,9 +234,9 @@ These risks are reasons to keep v0.1 local and non-financial, not reasons to att
 
 ## 10. Verification evidence
 
-The repository contains sixteen automated tests: twelve service tests and four HTTP/MCP/configuration tests. They cover input validation, scoped idempotency, configured policy limits and lists, one- and two-actor decisions, rejection, lazy expiry, v1 database migration and archival enforcement, a reconstructed v1 threshold-lowering attack, v2 policy/digest binding, forged authorization state, deleted approvals, decision/audit tampering, fail-closed post-`IN_DOUBT` observation handling, the exact MCP tool list, absence of known unsafe HTTP paths, and refusal to start outside demo mode. The boundary scanner examines seven runtime source files for prohibited MCP capability names and common network imports or calls in the core.
+The repository contains seventeen automated tests: thirteen service tests and four HTTP/MCP/configuration tests. They cover input validation, scoped idempotency, configured policy limits and lists, one- and two-actor decisions, rejection, lazy expiry, v1 database migration and archival enforcement, a reconstructed v1 threshold-lowering attack, v2 policy/digest binding, forged authorization state, deleted approvals, decision/audit/observation tampering, observation deletion/insertion/reordering, strict approval and observation request bodies, fail-closed post-`IN_DOUBT` observation handling, the exact MCP tool list, absence of known unsafe HTTP paths, and refusal to start outside demo mode. The boundary scanner examines seven runtime source files for prohibited MCP capability names and common network imports or calls in the core.
 
-On the maintainer's local Node.js 24 environment, all sixteen tests and the boundary scan pass. This paper records local evidence; hosted continuous-integration results are dynamic repository evidence and should be checked independently. Tests still do not cover multi-process races, authenticated route authorization, canonicalization fuzzing, a privileged full-history rewrite of v2 data with key access, or startup verification of every stored row.
+On the maintainer's local Node.js 24 environment, all seventeen tests and the boundary scan pass. This paper records local evidence; hosted continuous-integration results are dynamic repository evidence and should be checked independently. Tests still do not cover multi-process races, authenticated route authorization, canonicalization fuzzing, a privileged full-history rewrite of v2 data with key access, or startup verification of every stored row.
 
 The evaluation therefore supports only a bounded conclusion: the checked source and tests demonstrate the intended proposal-only shape under ordinary local execution. They do not prove production security.
 
@@ -247,7 +247,7 @@ The evaluation therefore supports only a bounded conclusion: the checked source 
 1. Extend the v2 digest and local consistency report into a portable authorization envelope that binds tenant, state version, actor set, creation/expiry, a one-time nonce, and consumption state.
 2. Make every state change an atomic, conditional transition with an expected version and add multi-process race tests.
 3. Design a separately authorized reconciliation event with authoritative evidence before permitting any future resolution of a frozen `IN_DOUBT` state.
-4. Add adversarial coverage for replay, canonicalization edge cases, observation/event divergence, startup verification, and privileged full-history rewrite assumptions.
+4. Add adversarial coverage for replay, canonicalization edge cases, startup verification, and privileged full-history rewrite assumptions.
 5. Define an external anchoring and asymmetric-verification design before any receipt is accepted outside the local demo boundary.
 
 ### Phase 2 - real identity and durable evidence
@@ -309,13 +309,13 @@ The same honesty must apply to what is unfinished. Identity is spoofable, integr
 
 ## Appendix A - Reproducibility snapshot
 
-- Release label: `0.1.0-alpha.0`
+- Release label: `0.1.0-alpha.1`
 - Runtime: Node.js 24
 - Language: TypeScript
 - Persistence: built-in SQLite
 - Runtime package dependencies: none
 - Persisted tables: intents, approvals, observations, audit events
-- Automated tests in repository: 16
+- Automated tests in repository: 17
 - Runtime files checked by boundary scanner: 7
 - MCP protocol identifier advertised by server: `2025-06-18`
 - Default deployment: local demo only

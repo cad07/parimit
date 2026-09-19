@@ -139,6 +139,78 @@ test("all HTTP failures use the consistent error envelope", async (t) => {
     ((await json(oversizedLimit)).error as Record<string, unknown>).code,
     "VALIDATION_ERROR",
   );
+
+  const oversizedAgentId = await fetch(
+    `http://127.0.0.1:${address.port}/v1/intents?agent_id=${"a".repeat(129)}`,
+  );
+  assert.equal(oversizedAgentId.status, 400);
+  assert.equal(
+    ((await json(oversizedAgentId)).error as Record<string, unknown>).code,
+    "VALIDATION_ERROR",
+  );
+
+  const approvalWithUnknownProperty = await fetch(
+    `http://127.0.0.1:${address.port}/v1/intents/not-looked-up/approvals`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-parimit-actor": "human-http",
+        "x-parimit-role": "approver",
+      },
+      body: JSON.stringify({ decision: "APPROVE", unexpected: true }),
+    },
+  );
+  assert.equal(approvalWithUnknownProperty.status, 400);
+  const approvalError = (await json(approvalWithUnknownProperty)).error as Record<
+    string,
+    unknown
+  >;
+  assert.equal(approvalError.code, "VALIDATION_ERROR");
+  assert.match(String(approvalError.message), /unknown properties: unexpected/);
+
+  const observationWithUnknownProperty = await fetch(
+    `http://127.0.0.1:${address.port}/v1/demo/intents/not-looked-up/observations`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "PENDING", unexpected: true }),
+    },
+  );
+  assert.equal(observationWithUnknownProperty.status, 400);
+  const observationError = (await json(observationWithUnknownProperty)).error as Record<
+    string,
+    unknown
+  >;
+  assert.equal(observationError.code, "VALIDATION_ERROR");
+  assert.match(String(observationError.message), /unknown properties: unexpected/);
+
+  const malformedObservationPath = await fetch(
+    `http://127.0.0.1:${address.port}/v1/demo/intents/%/observations`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "PENDING" }),
+    },
+  );
+  assert.equal(malformedObservationPath.status, 400);
+  assert.equal(
+    ((await json(malformedObservationPath)).error as Record<string, unknown>).code,
+    "INVALID_PATH",
+  );
+
+  const tamperedIntent = service.createIntent(proposal("http-tampered-audit"));
+  service.database
+    .prepare("UPDATE audit_events SET payload = ? WHERE intent_id = ? AND sequence = 1")
+    .run('{"tampered":true}', tamperedIntent.id);
+  const tamperedAuditResponse = await fetch(
+    `http://127.0.0.1:${address.port}/v1/intents/${tamperedIntent.id}/audit`,
+  );
+  assert.equal(tamperedAuditResponse.status, 500);
+  assert.equal(
+    ((await json(tamperedAuditResponse)).error as Record<string, unknown>).code,
+    "INTEGRITY_FAILURE",
+  );
 });
 
 test("MCP exposes proposal/status/policy/cancel/mock/audit tools but no approval or execution tool", async (t) => {
@@ -181,7 +253,7 @@ test("MCP exposes proposal/status/policy/cancel/mock/audit tools but no approval
   const initializeResult = (initialized?.result ?? {}) as Record<string, unknown>;
   assert.deepEqual(initializeResult.serverInfo, {
     name: "parimit",
-    version: "0.1.0-alpha.0",
+    version: "0.1.0-alpha.1",
   });
 });
 

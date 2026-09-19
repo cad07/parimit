@@ -930,17 +930,19 @@ export class ParimitService {
           409,
         );
       }
+      const observationId = randomUUID();
       this.database
         .prepare(
           `INSERT INTO observations (id, intent_id, status, provider_reference, observed_at, source)
            VALUES (?, ?, ?, ?, ?, 'DEMO_MOCK')`,
         )
-        .run(randomUUID(), id, status, providerReference, observedAt);
+        .run(observationId, id, status, providerReference, observedAt);
       this.appendAudit(
         id,
         "DEMO_MOCK_OBSERVATION_RECORDED",
         actorId,
         {
+          observation_id: observationId,
           status,
           provider_reference: providerReference,
           source: "DEMO_MOCK",
@@ -954,7 +956,15 @@ export class ParimitService {
   }
 
   getAudit(id: string): AuditEventView[] {
-    this.getRawIntent(id);
+    const report = this.verifyIntegrity(id);
+    if (!report.valid) {
+      throw new ParimitError(
+        "INTEGRITY_FAILURE",
+        "Stored proposal integrity verification failed",
+        500,
+        report,
+      );
+    }
     const rows = this.database
       .prepare("SELECT * FROM audit_events WHERE intent_id = ? ORDER BY sequence")
       .all(id) as SqlRow[];
@@ -1214,6 +1224,68 @@ export class ParimitService {
       }
     }
 
+    const observationRows = this.database
+      .prepare(
+        `SELECT rowid AS storage_order, id, status, provider_reference, observed_at, source
+           FROM observations
+          WHERE intent_id = ?
+          ORDER BY rowid`,
+      )
+      .all(id) as SqlRow[];
+    const observationEvents = auditEvents.filter(
+      (event) => event.event_type === "DEMO_MOCK_OBSERVATION_RECORDED",
+    );
+    if (observationRows.length !== observationEvents.length) {
+      addStateFailure("OBSERVATION_AUDIT_COUNT_MISMATCH");
+    }
+    for (const [index, observationRow] of observationRows.entries()) {
+      const observationId = stringCell(observationRow, "id");
+      const observationStatus = stringCell(observationRow, "status");
+      const providerReference =
+        observationRow.provider_reference === null
+          ? null
+          : stringCell(observationRow, "provider_reference");
+      const observedAt = stringCell(observationRow, "observed_at");
+      const source = stringCell(observationRow, "source");
+      const event = observationEvents[index];
+
+      if (
+        observationId.length === 0 ||
+        !OBSERVATION_STATUSES.includes(observationStatus as ObservationStatus) ||
+        source !== "DEMO_MOCK" ||
+        !Number.isFinite(Date.parse(observedAt)) ||
+        Date.parse(observedAt) < proposalCreatedAt ||
+        (providerReference !== null &&
+          (providerReference.length === 0 || providerReference.length > 200))
+      ) {
+        addStateFailure(`OBSERVATION_SEMANTICS_INVALID:${observationId || index + 1}`);
+      }
+
+      const payload = event && isRecord(event.payload) ? event.payload : null;
+      const expectedPayloadWithoutId = {
+        status: observationStatus,
+        provider_reference: providerReference,
+        source,
+        retry_permitted: false,
+        moves_money: false,
+      };
+      // Before observation IDs were audit-bound, alpha events contained the
+      // same evidence fields but no observation_id. Keep those rows readable;
+      // all newly recorded observations bind their stable row identity too.
+      const expectedPayload =
+        payload && Object.hasOwn(payload, "observation_id")
+          ? { observation_id: observationId, ...expectedPayloadWithoutId }
+          : expectedPayloadWithoutId;
+      if (
+        !event ||
+        event.occurred_at !== observedAt ||
+        !payload ||
+        canonicalJson(payload) !== canonicalJson(expectedPayload)
+      ) {
+        addStateFailure(`OBSERVATION_AUDIT_MISMATCH:${observationId || index + 1}`);
+      }
+    }
+
     let auditedStatus: IntentStatus | null = null;
     for (const event of auditEvents) {
       if (event.event_type === "PROPOSAL_CREATED") auditedStatus = "AWAITING_APPROVAL";
@@ -1268,10 +1340,7 @@ export class ParimitService {
       addStateFailure("LEGACY_V1_AUTHORIZATION_UNTRUSTED");
     }
 
-    const observationCountRow = this.database
-      .prepare("SELECT COUNT(*) AS total FROM observations WHERE intent_id = ?")
-      .get(id) as SqlRow;
-    if (numberCell(observationCountRow, "total") > 0 && status !== "AUTHORIZED_NO_DISPATCH") {
+    if (observationRows.length > 0 && status !== "AUTHORIZED_NO_DISPATCH") {
       addStateFailure("OBSERVATION_WITHOUT_AUTHORIZED_STATE");
     }
 
@@ -1289,7 +1358,7 @@ export class ParimitService {
   safetyMetadata(): Record<string, unknown> {
     return {
       name: "Parimit",
-      version: "0.1.0-alpha.0",
+      version: "0.1.0-alpha.1",
       mode: "PROPOSAL_ONLY",
       moves_money: false,
       connects_to_upi: false,

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Parimit API
-  version: 0.1.0-alpha.0
+  version: 0.1.0-alpha.1
   summary: Proposal-only payment safety and human-approval demo
   description: |
     Parimit accepts payment proposals, evaluates deterministic policy,
@@ -79,6 +79,10 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "409":
           $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalError"
     get:
       tags: [Proposals]
       operationId: listPaymentProposals
@@ -88,6 +92,7 @@ paths:
           in: query
           schema:
             type: string
+            minLength: 1
             maxLength: 128
         - name: status
           in: query
@@ -115,6 +120,8 @@ paths:
                       $ref: "#/components/schemas/Intent"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/IntegrityError"
   /v1/intents/simulate:
     post:
       tags: [Mock simulation]
@@ -148,6 +155,8 @@ paths:
                         const: false
         "400":
           $ref: "#/components/responses/BadRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
   /v1/intents/{intentId}:
     parameters:
       - $ref: "#/components/parameters/IntentId"
@@ -164,6 +173,8 @@ paths:
                 $ref: "#/components/schemas/IntentResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/IntegrityError"
   /v1/intents/{intentId}/cancel:
     parameters:
       - $ref: "#/components/parameters/IntentId"
@@ -190,6 +201,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/IntegrityError"
   /v1/intents/{intentId}/approvals:
     parameters:
       - $ref: "#/components/parameters/IntentId"
@@ -233,6 +246,10 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "500":
+          $ref: "#/components/responses/IntegrityError"
   /v1/intents/{intentId}/audit:
     parameters:
       - $ref: "#/components/parameters/IntentId"
@@ -255,6 +272,8 @@ paths:
                       $ref: "#/components/schemas/AuditEvent"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/IntegrityError"
   /v1/intents/{intentId}/audit/verify:
     parameters:
       - $ref: "#/components/parameters/IntentId"
@@ -316,6 +335,10 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "500":
+          $ref: "#/components/responses/IntegrityError"
 components:
   securitySchemes:
     DemoActor:
@@ -363,6 +386,24 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     Conflict:
       description: Idempotency conflict, duplicate reviewer, invalid state transition, or frozen `IN_DOUBT` observation stream
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PayloadTooLarge:
+      description: JSON request body exceeds the 1 MiB limit
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    IntegrityError:
+      description: Stored proposal integrity verification failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: Internal persistence or integrity failure
       content:
         application/json:
           schema:

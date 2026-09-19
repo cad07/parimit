@@ -503,6 +503,103 @@ test("tampering with intent fields, approval receipts, or audit events is detect
   assert.equal(auditReport.valid, false);
 });
 
+test("mock observation rows are reconciled exactly with their hash-linked audit events", (t) => {
+  const createAuthorized = (
+    key: string,
+  ): { service: ParimitService; id: string; createdAt: string } => {
+    const service = new ParimitService({ receiptSecret: `observation-integrity-${key}` });
+    t.after(() => service.close());
+    const intent = service.createIntent(proposal(key, "100"));
+    service.approveIntent(intent.id, "human-a", "approver", "APPROVE");
+    return { service, id: intent.id, createdAt: intent.created_at };
+  };
+  const createObserved = (
+    key: string,
+    status: "PENDING" | "SUCCEEDED" | "FAILED" | "IN_DOUBT" = "SUCCEEDED",
+    providerReference = "mock-ref-original",
+  ): { service: ParimitService; id: string; createdAt: string } => {
+    const fixture = createAuthorized(key);
+    fixture.service.recordMockObservation(fixture.id, status, providerReference);
+    return fixture;
+  };
+  const assertFailsClosed = (
+    service: ParimitService,
+    id: string,
+    expectedFailure: string,
+  ): void => {
+    const report = service.verifyIntegrity(id);
+    assert.equal(report.intent_hash_valid, true);
+    assert.equal(report.approval_receipts_valid, true);
+    assert.equal(report.audit_chain_valid, true);
+    assert.equal(report.state_consistency_valid, false);
+    assert.equal(report.valid, false);
+    assert.ok(
+      report.failures.some((failure) => failure.startsWith(expectedFailure)),
+      `${expectedFailure}: ${report.failures.join(", ")}`,
+    );
+    for (const read of [() => service.getIntent(id), () => service.getAudit(id)]) {
+      assert.throws(
+        read,
+        (error: unknown) => error instanceof ParimitError && error.code === "INTEGRITY_FAILURE",
+      );
+    }
+  };
+
+  const statusTamper = createObserved("observation-status-tamper");
+  statusTamper.service.database
+    .prepare("UPDATE observations SET status = 'FAILED' WHERE intent_id = ?")
+    .run(statusTamper.id);
+  assertFailsClosed(statusTamper.service, statusTamper.id, "OBSERVATION_AUDIT_MISMATCH:");
+  assert.throws(
+    () => statusTamper.service.listIntents({ agentId: "agent-demo" }),
+    (error: unknown) => error instanceof ParimitError && error.code === "INTEGRITY_FAILURE",
+  );
+
+  const referenceTamper = createObserved("observation-reference-tamper");
+  referenceTamper.service.database
+    .prepare("UPDATE observations SET provider_reference = 'mock-ref-tampered' WHERE intent_id = ?")
+    .run(referenceTamper.id);
+  assertFailsClosed(referenceTamper.service, referenceTamper.id, "OBSERVATION_AUDIT_MISMATCH:");
+
+  const timestampTamper = createObserved("observation-timestamp-tamper");
+  timestampTamper.service.database
+    .prepare("UPDATE observations SET observed_at = '2099-01-01T00:00:00.000Z' WHERE intent_id = ?")
+    .run(timestampTamper.id);
+  assertFailsClosed(timestampTamper.service, timestampTamper.id, "OBSERVATION_AUDIT_MISMATCH:");
+
+  const sourceTamper = createObserved("observation-source-tamper");
+  sourceTamper.service.database.exec("PRAGMA ignore_check_constraints = ON");
+  sourceTamper.service.database
+    .prepare("UPDATE observations SET source = 'FORGED_SOURCE' WHERE intent_id = ?")
+    .run(sourceTamper.id);
+  assertFailsClosed(sourceTamper.service, sourceTamper.id, "OBSERVATION_SEMANTICS_INVALID:");
+
+  const deletion = createObserved("observation-deletion");
+  deletion.service.database.prepare("DELETE FROM observations WHERE intent_id = ?").run(deletion.id);
+  assertFailsClosed(deletion.service, deletion.id, "OBSERVATION_AUDIT_COUNT_MISMATCH");
+
+  const insertion = createAuthorized("observation-insertion");
+  const insertedAt = new Date(Date.parse(insertion.createdAt) + 1_000).toISOString();
+  insertion.service.database
+    .prepare(
+      `INSERT INTO observations (id, intent_id, status, provider_reference, observed_at, source)
+       VALUES ('forged-observation', ?, 'SUCCEEDED', 'mock-ref-forged', ?, 'DEMO_MOCK')`,
+    )
+    .run(insertion.id, insertedAt);
+  assertFailsClosed(insertion.service, insertion.id, "OBSERVATION_AUDIT_COUNT_MISMATCH");
+
+  const reordered = createAuthorized("observation-reordering");
+  reordered.service.recordMockObservation(reordered.id, "PENDING", "mock-ref-first");
+  reordered.service.recordMockObservation(reordered.id, "SUCCEEDED", "mock-ref-second");
+  const stored = reordered.service.database
+    .prepare("SELECT rowid, id FROM observations WHERE intent_id = ? ORDER BY rowid")
+    .all(reordered.id) as Array<Record<string, string | number | bigint | null>>;
+  reordered.service.database
+    .prepare("UPDATE observations SET rowid = ? WHERE id = ?")
+    .run(Number(stored[1].rowid) + 1_000, stored[0].id);
+  assertFailsClosed(reordered.service, reordered.id, "OBSERVATION_AUDIT_MISMATCH:");
+});
+
 test("v2 intent digest binds the policy snapshot, initial state, and digest version", (t) => {
   const cases: Array<{ column: string; value: string | number }> = [
     { column: "policy_allowed", value: 0 },

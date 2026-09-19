@@ -7,6 +7,26 @@ release.
 
 ## [Unreleased]
 
+## [0.1.0-alpha.1] - 2026-09-19
+
+### Security
+
+- Bound every newly recorded mock observation to its hash-linked audit event by
+  stable observation ID and reconciled observation count, order, status, provider
+  reference, source, timestamp, retry policy, and no-money flag on every read.
+- Made intent, list, and audit reads fail closed when stored observation evidence
+  diverges from the audit history. Existing alpha events without an observation ID
+  remain readable only through exact legacy field, order, and count matching.
+- Added adversarial coverage for observation edits, deletion, insertion, and
+  reordering.
+
+### Changed
+
+- Rejected unknown fields in human-decision and demo-observation REST bodies,
+  enforced documented agent-filter bounds, and normalized malformed proposal
+  identifiers to `400 INVALID_PATH` so runtime validation matches OpenAPI.
+- Documented request-size and integrity-failure responses in OpenAPI.
+
 ## [0.1.0-alpha.0] - 2026-09-19
 
 ### Added
