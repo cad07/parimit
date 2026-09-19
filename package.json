@@ -1,0 +1,37 @@
+{
+  "name": "parimit",
+  "version": "0.1.0-alpha.0",
+  "description": "A non-dispatchable payment-intent boundary that gives AI agents bounded authority.",
+  "type": "module",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cad07/parimit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cad07/parimit/issues"
+  },
+  "homepage": "https://github.com/cad07/parimit#readme",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types src/server.ts",
+    "mcp": "node --experimental-strip-types src/mcp.ts",
+    "demo:agent": "node --experimental-strip-types examples/demo-agent.ts",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "check:boundary": "node --experimental-strip-types scripts/check-boundary.ts",
+    "check": "node --experimental-strip-types --test tests/*.test.ts && node --experimental-strip-types scripts/check-boundary.ts"
+  },
+  "keywords": [
+    "ai-agents",
+    "payments",
+    "human-in-the-loop",
+    "mcp",
+    "policy-engine",
+    "payment-intents",
+    "non-dispatchable",
+    "audit"
+  ],
+  "license": "MIT"
+}

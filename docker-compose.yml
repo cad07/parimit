@@ -1,0 +1,34 @@
+services:
+  parimit:
+    build:
+      context: .
+    image: parimit:local
+    init: true
+    environment:
+      PARIMIT_HOST: 0.0.0.0
+      PARIMIT_PORT: "8787"
+      PARIMIT_DB_PATH: /data/parimit.db
+      PARIMIT_DEMO_MODE: "true"
+      PARIMIT_RECEIPT_KEY: ${PARIMIT_RECEIPT_KEY:-local-demo-only-change-before-sharing}
+      PARIMIT_PER_TX_LIMIT: ${PARIMIT_PER_TX_LIMIT:-100000}
+      PARIMIT_DAILY_AGENT_LIMIT: ${PARIMIT_DAILY_AGENT_LIMIT:-500000}
+      PARIMIT_DUAL_APPROVAL_THRESHOLD: ${PARIMIT_DUAL_APPROVAL_THRESHOLD:-50000}
+      PARIMIT_INTENT_TTL_SECONDS: ${PARIMIT_INTENT_TTL_SECONDS:-1800}
+      PARIMIT_MAX_EXPIRY_SECONDS: ${PARIMIT_MAX_EXPIRY_SECONDS:-86400}
+      PARIMIT_BLOCKED_PAYEES: ${PARIMIT_BLOCKED_PAYEES:-}
+      PARIMIT_ALLOWED_PAYEES: ${PARIMIT_ALLOWED_PAYEES:-}
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - parimit-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  parimit-data:

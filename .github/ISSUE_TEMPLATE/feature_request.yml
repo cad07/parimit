@@ -1,0 +1,34 @@
+name: Feature request
+description: Propose a feature that preserves the proposal-only boundary
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What safety or usability problem should be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: threats
+    attributes:
+      label: Threat-model impact
+      description: Which trust boundaries, identities, or authorities would change?
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundary
+    attributes:
+      label: Boundary confirmation
+      options:
+        - label: The proposal does not give an agent approval or payment-execution authority.
+          required: true
+        - label: The proposal does not connect the default build to a live payment rail.
+          required: true

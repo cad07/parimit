@@ -1,0 +1,25 @@
+Parimit
+Copyright (c) 2026 Parimit contributors
+
+Parimit is an independent open-source project. It is not affiliated
+with, sponsored by, endorsed by, or certified by the National Payments
+Corporation of India (NPCI), AiNxt, any bank, or any payment network.
+
+The design was informed by the public safety boundaries documented in NPCI's
+AiNxt OS repository at audited commit:
+
+  https://github.com/NPCI/ainxt-os/tree/5b6fbb90eb715384559256f7257e4d661cb1d17b
+
+In particular, see the payment boundary and settlement documentation:
+
+  https://github.com/NPCI/ainxt-os/blob/5b6fbb90eb715384559256f7257e4d661cb1d17b/docs/governance_compliance/payments_boundary.md
+  https://github.com/NPCI/ainxt-os/blob/5b6fbb90eb715384559256f7257e4d661cb1d17b/docs/governance_compliance/payments_settlement.md
+
+The initial Parimit implementation is independently authored. No AiNxt
+source code has been copied into this repository. If future contributions
+incorporate third-party code, contributors must preserve the applicable
+copyright and license notices and update this file.
+
+"NPCI", "AiNxt", and "UPI" may be trademarks of their respective owners. This
+project does not use their logos. References are descriptive only and do not
+imply endorsement or compatibility certification.

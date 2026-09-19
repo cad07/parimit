@@ -1,0 +1,693 @@
+openapi: 3.1.0
+info:
+  title: Parimit API
+  version: 0.1.0-alpha.0
+  summary: Proposal-only payment safety and human-approval demo
+  description: |
+    Parimit accepts payment proposals, evaluates deterministic policy,
+    records demo human decisions, and produces mock observations. It has no
+    live payment connector and cannot move money.
+
+    The `x-parimit-actor` and `x-parimit-role` headers are spoofable demo
+    identity, not production authentication. `AUTHORIZED_NO_DISPATCH` means an
+    exact proposal received the required demo approvals; it never means paid.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://127.0.0.1:8787
+    description: Local safe demo
+tags:
+  - name: Safety
+  - name: Proposals
+  - name: Human review
+  - name: Audit
+  - name: Mock simulation
+paths:
+  /v1/safety:
+    get:
+      tags: [Safety]
+      operationId: getSafetyMetadata
+      summary: Describe the enforced proposal-only boundary
+      responses:
+        "200":
+          description: Safety metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SafetyResponse"
+  /v1/intents:
+    post:
+      tags: [Proposals]
+      operationId: createPaymentProposal
+      summary: Create or idempotently replay a payment proposal
+      description: Proposes an intent and evaluates policy. It does not execute a payment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentProposalInput"
+            examples:
+              ordinaryDemo:
+                value:
+                  idempotency_key: demo-agent-2026-09-19-001
+                  requested_by:
+                    type: agent
+                    id: open-source-demo-agent
+                  on_behalf_of: demo-user
+                  amount:
+                    currency: INR
+                    minor: "49900"
+                  payee_reference: demo-book-shop
+                  purpose: Synthetic order DEMO-1042
+                  expires_in_seconds: 1800
+      responses:
+        "201":
+          description: New proposal created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntentResponse"
+        "200":
+          description: Idempotent replay of an existing identical proposal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    get:
+      tags: [Proposals]
+      operationId: listPaymentProposals
+      summary: List proposals
+      parameters:
+        - name: agent_id
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/IntentStatus"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+      responses:
+        "200":
+          description: Matching proposals, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Intent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /v1/intents/simulate:
+    post:
+      tags: [Mock simulation]
+      operationId: simulateProposalPolicy
+      summary: Evaluate policy without persisting a proposal
+      description: This is a dry-run policy evaluation and never contacts a rail.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentProposalInput"
+      responses:
+        "200":
+          description: Non-persisted policy result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [policy, persisted, moves_money]
+                    properties:
+                      policy:
+                        $ref: "#/components/schemas/PolicyDecision"
+                      persisted:
+                        const: false
+                      moves_money:
+                        const: false
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /v1/intents/{intentId}:
+    parameters:
+      - $ref: "#/components/parameters/IntentId"
+    get:
+      tags: [Proposals]
+      operationId: getPaymentProposal
+      summary: Get a proposal and its current demo state
+      responses:
+        "200":
+          description: Proposal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntentResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/intents/{intentId}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/IntentId"
+    post:
+      tags: [Proposals]
+      operationId: cancelPaymentProposal
+      summary: Cancel an eligible proposal
+      description: A demo agent may cancel only its own awaiting proposal; a demo admin may cancel an eligible proposal.
+      security:
+        - DemoActor: []
+          DemoRole: []
+      responses:
+        "200":
+          description: Cancelled proposal and demo-auth warning
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntentResponseWithWarning"
+        "401":
+          $ref: "#/components/responses/DemoAuthRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/intents/{intentId}/approvals:
+    parameters:
+      - $ref: "#/components/parameters/IntentId"
+    post:
+      tags: [Human review]
+      operationId: recordHumanDecision
+      summary: Record a demo human approval or rejection
+      description: |
+        Human-only route. Demo headers are spoofable and must be replaced with
+        verified human identity before shared use. An approval cannot dispatch
+        or execute a payment.
+      security:
+        - DemoActor: []
+          DemoRole: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [APPROVE, REJECT]
+      responses:
+        "200":
+          description: Updated proposal and demo-auth warning
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntentResponseWithWarning"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DemoAuthRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/intents/{intentId}/audit:
+    parameters:
+      - $ref: "#/components/parameters/IntentId"
+    get:
+      tags: [Audit]
+      operationId: getProposalAuditEvents
+      summary: Get the hash-chained audit history
+      responses:
+        "200":
+          description: Audit events in sequence order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditEvent"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/intents/{intentId}/audit/verify:
+    parameters:
+      - $ref: "#/components/parameters/IntentId"
+    get:
+      tags: [Audit]
+      operationId: verifyProposalIntegrity
+      summary: Verify proposal, approval, and audit integrity
+      responses:
+        "200":
+          description: Integrity report
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/IntegrityReport"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/demo/intents/{intentId}/observations:
+    parameters:
+      - $ref: "#/components/parameters/IntentId"
+    post:
+      tags: [Mock simulation]
+      operationId: recordMockObservation
+      summary: Record a demo-only mock outcome
+      description: >-
+        Available only after the proposal reaches `AUTHORIZED_NO_DISPATCH`. No
+        funds move. Once `IN_DOUBT` is recorded, every later mock observation is
+        rejected with HTTP 409 and error code `IN_DOUBT_FROZEN`; this alpha has
+        no authorized reconciliation mechanism.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status:
+                  $ref: "#/components/schemas/ObservationStatus"
+                provider_reference:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: Fictional reference for demos only.
+      responses:
+        "200":
+          description: Updated proposal and explicit mock warning
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntentResponseWithWarning"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+components:
+  securitySchemes:
+    DemoActor:
+      type: apiKey
+      in: header
+      name: x-parimit-actor
+      description: Spoofable demo actor identifier; not production authentication.
+    DemoRole:
+      type: apiKey
+      in: header
+      name: x-parimit-role
+      description: Spoofable demo role (`agent`, `approver`, or `admin`).
+  parameters:
+    IntentId:
+      name: intentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    BadRequest:
+      description: Invalid JSON, input, or policy data
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    DemoAuthRequired:
+      description: Demo identity headers are missing
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: The demo actor lacks authority for this operation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Proposal was not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Idempotency conflict, duplicate reviewer, invalid state transition, or frozen `IN_DOUBT` observation stream
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    PaymentProposalInput:
+      type: object
+      additionalProperties: false
+      required: [idempotency_key, requested_by, amount, payee_reference, purpose]
+      properties:
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:@/+\\-]*$"
+        requested_by:
+          type: object
+          additionalProperties: false
+          required: [type, id]
+          properties:
+            type:
+              const: agent
+            id:
+              type: string
+              minLength: 1
+              maxLength: 128
+              pattern: "^[A-Za-z0-9][A-Za-z0-9._:@/+\\-]*$"
+        on_behalf_of:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:@/+\\-]*$"
+        amount:
+          type: object
+          additionalProperties: false
+          required: [currency, minor]
+          properties:
+            currency:
+              const: INR
+            minor:
+              type: string
+              pattern: "^[1-9][0-9]*$"
+              description: Positive integer paise encoded as a decimal string.
+        payee_reference:
+          type: string
+          minLength: 6
+          maxLength: 64
+          pattern: "^[A-Za-z][A-Za-z0-9:_-]{5,63}$"
+          description: Opaque internal alias only; payment addresses and account identifiers are forbidden.
+        purpose:
+          type: string
+          minLength: 1
+          maxLength: 500
+        expires_in_seconds:
+          type: integer
+          minimum: 1
+          maximum: 86400
+          default: 1800
+    IntentStatus:
+      type: string
+      enum:
+        - POLICY_DENIED
+        - AWAITING_APPROVAL
+        - AUTHORIZED_NO_DISPATCH
+        - REJECTED
+        - CANCELLED
+        - EXPIRED
+    ObservationStatus:
+      type: string
+      enum: [UNKNOWN, PENDING, SUCCEEDED, FAILED, REVERSED, DISPUTED, IN_DOUBT]
+      description: >-
+        `IN_DOUBT` freezes this proposal's mock observation stream; no later
+        observation is accepted in the alpha.
+    PolicyDecision:
+      type: object
+      required:
+        - allowed
+        - reasons
+        - rules_version
+        - required_approvals
+        - current_daily_exposure_minor
+        - projected_daily_exposure_minor
+      properties:
+        allowed:
+          type: boolean
+        reasons:
+          type: array
+          items:
+            type: string
+        rules_version:
+          type: string
+        required_approvals:
+          type: integer
+          enum: [1, 2]
+        current_daily_exposure_minor:
+          type: string
+          pattern: "^[0-9]+$"
+        projected_daily_exposure_minor:
+          type: string
+          pattern: "^[0-9]+$"
+    Approval:
+      type: object
+      required: [actor_id, actor_role, decision, intent_hash, created_at, receipt_hmac]
+      properties:
+        actor_id:
+          type: string
+        actor_role:
+          type: string
+          enum: [approver, admin]
+        decision:
+          type: string
+          enum: [APPROVE, REJECT]
+        intent_hash:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        receipt_hmac:
+          type: string
+    ApprovalReceipt:
+      type: object
+      description: Audit evidence only. It cannot authorize or dispatch execution.
+      required: [version, intent_id, intent_hash, fully_approved_at, approvals, execution_authorized, notice]
+      properties:
+        version:
+          const: parimit-approval-receipt-v1
+        intent_id:
+          type: string
+        intent_hash:
+          type: string
+        fully_approved_at:
+          type: string
+          format: date-time
+        approvals:
+          type: array
+          items:
+            $ref: "#/components/schemas/Approval"
+        execution_authorized:
+          const: false
+        notice:
+          type: string
+    Observation:
+      type: object
+      required: [status, observed_at, source, retry_permitted]
+      properties:
+        status:
+          $ref: "#/components/schemas/ObservationStatus"
+        provider_reference:
+          type: string
+          minLength: 1
+          maxLength: 200
+        observed_at:
+          type: string
+          format: date-time
+        source:
+          const: DEMO_MOCK
+        retry_permitted:
+          const: false
+    Intent:
+      type: object
+      required:
+        - id
+        - intent_version
+        - initial_status
+        - idempotency_key
+        - requested_by
+        - amount
+        - payee_reference
+        - purpose
+        - status
+        - required_approvals
+        - approval_count
+        - policy
+        - intent_hash
+        - created_at
+        - expires_at
+        - approvals
+      properties:
+        id:
+          type: string
+          format: uuid
+        intent_version:
+          type: string
+          enum: [parimit-payment-intent-v1, parimit-payment-intent-v2]
+          description: >-
+            Version of the canonical payload covered by intent_hash. New intents use v2.
+            Migrated v1 rows are archival/read-only, and v1 authorization state is rejected
+            because its digest did not bind the policy threshold.
+        initial_status:
+          type: string
+          enum: [POLICY_DENIED, AWAITING_APPROVAL]
+          description: Immutable creation state covered by the v2 intent digest.
+        idempotency_key:
+          type: string
+        requested_by:
+          type: object
+          required: [type, id]
+          properties:
+            type:
+              const: agent
+            id:
+              type: string
+        on_behalf_of:
+          type: string
+        amount:
+          type: object
+          required: [currency, minor]
+          properties:
+            currency:
+              const: INR
+            minor:
+              type: string
+        payee_reference:
+          type: string
+        purpose:
+          type: string
+        status:
+          $ref: "#/components/schemas/IntentStatus"
+        required_approvals:
+          type: integer
+          enum: [1, 2]
+        approval_count:
+          type: integer
+          minimum: 0
+        policy:
+          type: object
+          required: [allowed, reasons, rules_version]
+          properties:
+            allowed:
+              type: boolean
+            reasons:
+              type: array
+              items:
+                type: string
+            rules_version:
+              type: string
+        intent_hash:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        observation:
+          $ref: "#/components/schemas/Observation"
+        approvals:
+          type: array
+          items:
+            $ref: "#/components/schemas/Approval"
+        receipt:
+          $ref: "#/components/schemas/ApprovalReceipt"
+        idempotent_replay:
+          type: boolean
+    AuditEvent:
+      type: object
+      required: [sequence, intent_id, event_type, actor_id, payload, occurred_at, previous_hash, event_hash]
+      properties:
+        sequence:
+          type: integer
+          minimum: 1
+        intent_id:
+          type: string
+        event_type:
+          type: string
+        actor_id:
+          type: string
+        payload: {}
+        occurred_at:
+          type: string
+          format: date-time
+        previous_hash:
+          type: string
+        event_hash:
+          type: string
+    IntegrityReport:
+      type: object
+      required: [valid, intent_hash_valid, approval_receipts_valid, audit_chain_valid, state_consistency_valid, failures]
+      properties:
+        valid:
+          type: boolean
+        intent_hash_valid:
+          type: boolean
+        approval_receipts_valid:
+          type: boolean
+        audit_chain_valid:
+          type: boolean
+        state_consistency_valid:
+          type: boolean
+          description: Whether policy, lifecycle state, approvals, observations, and audit evidence agree.
+        failures:
+          type: array
+          items:
+            type: string
+    SafetyResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: true
+    IntentResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Intent"
+    IntentResponseWithWarning:
+      type: object
+      required: [data, warning]
+      properties:
+        data:
+          $ref: "#/components/schemas/Intent"
+        warning:
+          type: string
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details: {}

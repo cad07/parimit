@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Parimit is a proposal-only demo for reviewing AI-requested payment intents. It never moves money."
+    />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#eef2ea" />
+    <title>Parimit — Proposal-only demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="#top" aria-label="Parimit home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 28 28" role="img">
+              <path d="M14 2.5 23 6v7c0 6.2-3.8 10.5-9 12.5C8.8 23.5 5 19.2 5 13V6l9-3.5Z" />
+              <path d="m9.7 14 2.7 2.7 6-6" />
+            </svg>
+          </span>
+          <span>
+            <strong>Parimit</strong>
+          </span>
+        </a>
+
+        <div class="header-meta">
+          <span class="environment-pill"><span class="pulse-dot" aria-hidden="true"></span>Local demo</span>
+          <button class="identity-button" id="identity-button" type="button" aria-expanded="false" aria-controls="identity-popover">
+            <span class="avatar" id="avatar-initials" aria-hidden="true">DA</span>
+            <span class="identity-button-copy">
+              <small>Acting as</small>
+              <strong id="identity-summary">demo-approver</strong>
+            </span>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>
+          </button>
+        </div>
+
+        <div class="identity-popover" id="identity-popover" hidden>
+          <div class="popover-heading">
+            <div>
+              <span class="eyebrow">Demo identity</span>
+              <h2>Request headers</h2>
+            </div>
+            <button class="icon-button" type="button" id="close-identity" aria-label="Close identity settings">&times;</button>
+          </div>
+          <p>These local values are sent as <code>x-parimit-actor</code> and <code>x-parimit-role</code>. They are not production authentication.</p>
+          <label class="field-label" for="actor-input">Actor identifier</label>
+          <input id="actor-input" name="actor" value="demo-approver" maxlength="64" autocomplete="off" />
+          <label class="field-label" for="role-select">Demo role</label>
+          <select id="role-select" name="role">
+            <option value="approver">Approver</option>
+            <option value="agent">Agent</option>
+            <option value="admin">Admin</option>
+          </select>
+          <button class="button button-primary button-full" id="save-identity" type="button">Use this identity</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="demo-ribbon" role="status" aria-label="Demo safety notice">
+      <div class="shell demo-ribbon-inner">
+        <span class="demo-badge">DEMO</span>
+        <p><strong>Proposal-only safety plane.</strong> This software cannot initiate UPI or any other payment and never moves money.</p>
+        <a href="#safety-boundary">See boundary <span aria-hidden="true">↓</span></a>
+      </div>
+    </div>
+
+    <main id="main-content">
+      <section class="hero shell" id="top" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="eyebrow-line" aria-hidden="true"></span>Human control for agent proposals</p>
+          <h1 id="page-title">Review intent.<br /><em>Keep control.</em></h1>
+          <p class="hero-description">
+            Let an agent suggest a payment while people and deterministic policy decide what happens next. The approval record is inspectable; execution is deliberately out of scope.
+          </p>
+        </div>
+        <div class="hero-proof" aria-label="Safety properties">
+          <div class="proof-number">0</div>
+          <div>
+            <strong>payment execution tools</strong>
+            <span>No pay, transfer, debit, or UPI dispatch endpoint exists.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="metrics shell" aria-label="Proposal overview">
+        <article class="metric-card">
+          <div class="metric-icon metric-icon-neutral" aria-hidden="true">◎</div>
+          <div><span>Total proposals</span><strong id="metric-total">—</strong></div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-icon metric-icon-amber" aria-hidden="true">◷</div>
+          <div><span>Awaiting review</span><strong id="metric-pending">—</strong></div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-icon metric-icon-green" aria-hidden="true">✓</div>
+          <div><span>Authorized · no dispatch</span><strong id="metric-approved">—</strong></div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-icon metric-icon-coral" aria-hidden="true">⊘</div>
+          <div><span>Stopped safely</span><strong id="metric-stopped">—</strong></div>
+        </article>
+      </section>
+
+      <section class="workbench shell" aria-label="Payment proposal workbench">
+        <article class="panel proposal-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">New intent</p>
+              <h2>Propose a payment</h2>
+            </div>
+            <span class="panel-step" aria-hidden="true">01</span>
+          </div>
+          <p class="panel-intro">Creates a reviewable record only. Use an opaque reference—never enter a UPI ID, bank account, card number, phone number, or other sensitive data.</p>
+
+          <form id="proposal-form" novalidate>
+            <div class="field-group">
+              <label for="payee-reference">Opaque payee reference</label>
+              <div class="input-with-prefix">
+                <span aria-hidden="true">#</span>
+                <input
+                  id="payee-reference"
+                  name="payeeReference"
+                  type="text"
+                  required
+                  minlength="6"
+                  maxlength="64"
+                  pattern="[A-Za-z][A-Za-z0-9:_-]{5,63}"
+                  placeholder="merchant_demo_4821"
+                  autocomplete="off"
+                  aria-describedby="payee-help"
+                />
+              </div>
+              <small id="payee-help">A safe internal alias; letters, numbers, <code>:</code>, <code>_</code>, or <code>-</code>.</small>
+            </div>
+
+            <div class="form-row">
+              <div class="field-group amount-field">
+                <label for="amount">Amount</label>
+                <div class="input-with-prefix">
+                  <span aria-hidden="true">₹</span>
+                  <input id="amount" name="amount" type="number" required min="0.01" max="10000000" step="0.01" inputmode="decimal" placeholder="499.00" />
+                </div>
+              </div>
+              <div class="field-group currency-field">
+                <label for="currency">Currency</label>
+                <select id="currency" name="currency" aria-describedby="currency-help">
+                  <option value="INR">INR</option>
+                </select>
+                <small id="currency-help">Demo supports INR</small>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label for="purpose">Business purpose</label>
+              <textarea id="purpose" name="purpose" required minlength="4" maxlength="240" rows="3" placeholder="Example: Renew the team design tool for October"></textarea>
+              <div class="field-foot"><small>Describe why—not payment credentials.</small><small><span id="purpose-count">0</span>/240</small></div>
+            </div>
+
+            <div class="field-group">
+              <label for="idempotency-key">Idempotency key <span class="optional">optional</span></label>
+              <div class="field-inline">
+                <input id="idempotency-key" name="idempotencyKey" type="text" maxlength="80" autocomplete="off" aria-describedby="idempotency-help" />
+                <button class="button button-secondary" id="generate-key" type="button">Generate</button>
+              </div>
+              <small id="idempotency-help">Prevents an accidental duplicate proposal.</small>
+            </div>
+
+            <div class="form-error" id="proposal-error" role="alert" hidden></div>
+
+            <button class="button button-primary button-large button-full" id="create-proposal" type="submit">
+              <span>Create proposal</span>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12m-5-5 5 5-5 5" /></svg>
+            </button>
+            <p class="submit-assurance"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5 16 5v4.5c0 4-2.5 6.8-6 8-3.5-1.2-6-4-6-8V5l6-2.5Z" /><path d="M7.2 10.1 9 11.9l3.9-4" /></svg> Safe by construction: no payment will be sent</p>
+          </form>
+        </article>
+
+        <article class="panel flow-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">How it works</p>
+              <h2>The guarded path</h2>
+            </div>
+            <span class="panel-step" aria-hidden="true">02</span>
+          </div>
+
+          <ol class="guarded-flow">
+            <li>
+              <span class="flow-marker">1</span>
+              <div><strong>Agent proposes</strong><p>A bounded intent with an opaque payee reference and purpose.</p></div>
+              <span class="flow-tag">No credentials</span>
+            </li>
+            <li>
+              <span class="flow-marker">2</span>
+              <div><strong>Policy evaluates</strong><p>Deterministic rules decide whether human review may proceed.</p></div>
+              <span class="flow-tag">Explainable</span>
+            </li>
+            <li>
+              <span class="flow-marker">3</span>
+              <div><strong>People decide</strong><p>One or more distinct approvers accept or reject the exact intent.</p></div>
+              <span class="flow-tag">Human control</span>
+            </li>
+            <li>
+              <span class="flow-marker flow-marker-stop">■</span>
+              <div><strong>The demo stops here</strong><p>Approval is evidence, not execution. No payment rail is connected.</p></div>
+              <span class="flow-tag flow-tag-stop">Hard boundary</span>
+            </li>
+          </ol>
+
+          <div class="boundary-mini">
+            <div class="boundary-mini-icon" aria-hidden="true">↯</div>
+            <div><strong>What about results?</strong><p>Operators can attach labelled mock outcomes without transferring value. In doubt freezes all later observations in this alpha.</p></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="intents-section shell" aria-labelledby="intents-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Review queue</p>
+            <h2 id="intents-title">Payment proposals</h2>
+          </div>
+          <button class="button button-secondary" id="refresh-intents" type="button">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 5v4h-4M4 15v-4h4" /><path d="M5.7 8a5 5 0 0 1 8.5-1.8L16 8M4 12l1.8 1.8A5 5 0 0 0 14.3 12" /></svg>
+            Refresh
+          </button>
+        </div>
+
+        <div class="filters" aria-label="Filter proposals">
+          <div class="search-box">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m12.5 12.5 4 4" /></svg>
+            <label class="visually-hidden" for="intent-search">Search proposals</label>
+            <input id="intent-search" type="search" placeholder="Search reference, purpose, or ID" autocomplete="off" />
+          </div>
+          <div class="status-tabs" id="status-tabs" role="group" aria-label="Proposal status">
+            <button type="button" class="status-tab is-active" data-filter="all" aria-pressed="true">All</button>
+            <button type="button" class="status-tab" data-filter="pending" aria-pressed="false">Needs review</button>
+            <button type="button" class="status-tab" data-filter="approved" aria-pressed="false">Authorized</button>
+            <button type="button" class="status-tab" data-filter="stopped" aria-pressed="false">Stopped</button>
+          </div>
+        </div>
+
+        <div class="connection-notice" id="connection-notice" role="alert" hidden>
+          <div><strong>Dashboard could not reach the local API.</strong><span id="connection-message">Start the server, then try again.</span></div>
+          <button class="button button-secondary" id="retry-connection" type="button">Retry</button>
+        </div>
+
+        <div class="loading-state" id="intents-loading" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span><span>Loading proposals…</span>
+        </div>
+
+        <div class="intent-list" id="intent-list" aria-live="polite"></div>
+
+        <div class="empty-state" id="empty-state" hidden>
+          <div class="empty-illustration" aria-hidden="true"><span>+</span></div>
+          <h3>No proposals here yet</h3>
+          <p id="empty-message">Create the first proposal above. It will remain safely inside this review plane.</p>
+          <a class="button button-secondary" href="#payee-reference">Create a proposal</a>
+        </div>
+      </section>
+
+      <section class="safety-section" id="safety-boundary" aria-labelledby="safety-title">
+        <div class="shell safety-grid">
+          <div class="safety-copy">
+            <p class="eyebrow eyebrow-light">Non-negotiable boundary</p>
+            <h2 id="safety-title">Approval is not payment.</h2>
+            <p>An authorized proposal is an integrity-checked local record that demo reviewers accepted an exact intent. It is never a command to a bank, PSP, UPI application, wallet, or payment rail.</p>
+            <div class="safety-api-status" id="safety-api-status"><span class="status-light" aria-hidden="true"></span><span>Checking runtime boundary…</span></div>
+          </div>
+          <ul class="safety-list" id="safety-list">
+            <li><span aria-hidden="true">✓</span><div><strong>No execution endpoint</strong><p>The public API contains no route that can pay, transfer, collect, debit, or dispatch.</p></div></li>
+            <li><span aria-hidden="true">✓</span><div><strong>Opaque references only</strong><p>Payment addresses and account credentials do not belong in proposals.</p></div></li>
+            <li><span aria-hidden="true">✓</span><div><strong>Mock observations are labelled</strong><p>Simulation exercises state handling; it never claims a real-world settlement.</p></div></li>
+            <li><span aria-hidden="true">✓</span><div><strong>Every decision is auditable</strong><p>A hash-linked event trail exposes changes and supports integrity checks.</p></div></li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <div class="brand footer-brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 28 28"><path d="M14 2.5 23 6v7c0 6.2-3.8 10.5-9 12.5C8.8 23.5 5 19.2 5 13V6l9-3.5Z" /><path d="m9.7 14 2.7 2.7 6-6" /></svg></span><span><strong>Parimit</strong></span></div>
+        <p>Open-source proposal safety infrastructure. <strong>Demo only—never moves money.</strong></p>
+        <a href="#top">Back to top ↑</a>
+      </div>
+    </footer>
+
+    <dialog class="detail-dialog" id="intent-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-shell">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Proposal detail</p>
+            <h2 id="dialog-title">Review intent</h2>
+          </div>
+          <button class="icon-button dialog-close" type="button" aria-label="Close proposal details">&times;</button>
+        </header>
+        <div class="dialog-safety"><span class="demo-badge">DEMO</span><span>Proposal only · no funds can move</span></div>
+        <div class="dialog-content" id="dialog-content"></div>
+      </div>
+    </dialog>
+
+    <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+  </body>
+</html>
