@@ -14,12 +14,12 @@ data.
 
 ## Scenario 1: ordinary proposal
 
-1. Create a proposal for INR 499.00 (store it as `49900` minor units) to a
+1. Select the `agent` identity and create a proposal for INR 499.00 (store it as `49900` minor units) to a
    fictional payee reference.
 2. Reuse the same idempotency key and confirm that no second proposal appears.
 3. Review the amount, currency, payee, purpose, policy result, and expiry.
-4. As a human demo operator, approve the exact intent.
-5. Select the mock-success outcome and inspect the audit events.
+4. Switch to a distinct `approver` identity and approve the exact intent.
+5. Switch to `admin`, select the mock-success outcome, and inspect the audit events.
 
 The success label means only that the simulator returned success.
 

@@ -90,18 +90,18 @@ function loadIdentity() {
   } catch {
     // Ignore malformed local demo preferences.
   }
-  return { actor: "demo-approver", role: "approver" };
+  return { actor: "demo-agent", role: "agent" };
 }
 
 function saveIdentity(identity) {
   localStorage.setItem("parimit.identity", JSON.stringify(identity));
 }
 
-async function request(path, { method = "GET", body, role, signal } = {}) {
+async function request(path, { method = "GET", body, signal } = {}) {
   const headers = {
     Accept: "application/json",
     "x-parimit-actor": state.identity.actor,
-    "x-parimit-role": role || state.identity.role,
+    "x-parimit-role": state.identity.role,
   };
 
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -162,7 +162,6 @@ const api = Object.freeze({
   verifyAudit: (id) => request(ROUTES.verifyAudit(id)),
   addObservation: (id, payload) => request(ROUTES.observations(id), {
     method: "POST",
-    role: "admin",
     body: payload,
   }),
 });
@@ -455,6 +454,11 @@ async function loadSafetyBoundary() {
 }
 
 function validateProposal(formData) {
+  if (state.identity.role !== "agent") {
+    throw new ApiError("Switch the demo identity to the Agent role before creating a proposal.", {
+      code: "AGENT_ROLE_REQUIRED",
+    });
+  }
   const payeeReference = String(formData.get("payeeReference") || "").trim();
   const purpose = String(formData.get("purpose") || "").trim();
   const minor = decimalToMinor(formData.get("amount"));
@@ -476,7 +480,7 @@ function validateProposal(formData) {
     idempotency_key: String(formData.get("idempotencyKey") || "").trim() || makeIdempotencyKey(),
     requested_by: {
       type: "agent",
-      id: state.identity.role === "agent" ? state.identity.actor : "demo-agent",
+      id: state.identity.actor,
     },
     amount: {
       currency: String(formData.get("currency") || "INR"),
@@ -537,7 +541,9 @@ function detailMarkup(intent, audit = []) {
     || (state.identity.role === "agent" && state.identity.actor === requesterId);
   const canCancel = !TERMINAL_STATUSES.has(intent.status) && actorCanCancel;
   const observationFrozen = normalizeStatus(intent.observation?.status || "") === "IN_DOUBT";
-  const canObserve = STATUS.authorized.has(intent.status) && !observationFrozen;
+  const actorCanObserve = state.identity.role === "admin";
+  const canObserve =
+    STATUS.authorized.has(intent.status) && !observationFrozen && actorCanObserve;
   const reasons = intent.policy.reasons.length
     ? intent.policy.reasons.map((reason) => `<li>${escapeHtml(typeof reason === "string" ? reason : reason.message || reason.code || JSON.stringify(reason))}</li>`).join("")
     : `<li>No blocking policy reason was returned.</li>`;
@@ -613,7 +619,7 @@ function detailMarkup(intent, audit = []) {
           <input id="provider-reference" name="providerReference" maxlength="80" placeholder="mock_obs_001" autocomplete="off" ${canObserve ? "" : "disabled"} />
         </div>
         <button class="button button-secondary" type="submit" ${canObserve ? "" : "disabled"}>Attach mock result</button>
-        ${canObserve ? "" : `<p class="action-bar-note">${observationFrozen ? "IN_DOUBT froze this mock observation stream. The alpha accepts no later outcome and has no reconciliation mechanism." : "Mock observations can be attached only after the proposal reaches Authorized — no dispatch."}</p>`}
+        ${canObserve ? "" : `<p class="action-bar-note">${observationFrozen ? "IN_DOUBT froze this mock observation stream. The alpha accepts no later outcome and has no reconciliation mechanism." : !actorCanObserve ? "Switch the demo identity to the admin role to attach a mock observation." : "Mock observations can be attached only after the proposal reaches Authorized — no dispatch."}</p>`}
       </form>
     </section>
 
@@ -723,6 +729,14 @@ async function handleAuditVerify(button) {
 
 async function handleObservationSubmit(form) {
   if (!state.activeIntentId) return;
+  if (state.identity.role !== "admin") {
+    showToast(
+      "Observation not attached",
+      "Switch the demo identity to the admin role before attaching a mock observation.",
+      "error",
+    );
+    return;
+  }
   const submit = $("button[type='submit']", form);
   const formData = new FormData(form);
   const providerReference = String(formData.get("providerReference") || "").trim();

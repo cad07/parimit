@@ -10,15 +10,18 @@ This page explains the safety semantics that a schema alone cannot express.
   means ₹499.00. Floating-point amounts are rejected.
 - Supply `idempotency_key` in the proposal body. Its scope is the requesting
   agent; replaying it with different content returns a conflict.
+- Call `GET /v1/identity` with the bearer token, then use the returned
+  `actor_id` as `requested_by.id`. Identity substitution is rejected.
 - Treat proposal identifiers and audit metadata as opaque.
 - Do not infer that `AUTHORIZED_NO_DISPATCH` means paid. It means only that the
-  configured demo approval condition was satisfied.
+  configured approval condition was satisfied.
 - A simulated outcome is always labelled as mock data.
 - Recording `IN_DOUBT` freezes the mock observation stream. The REST endpoint
   rejects every later mock observation with HTTP `409` and code
   `IN_DOUBT_FROZEN`; the alpha has no reconciliation mechanism.
 
-Example proposal body:
+Local-demo proposal body (OIDC clients must replace `requested_by.id` with the
+derived value returned by `/v1/identity`):
 
 ```json
 {
@@ -46,6 +49,9 @@ in OpenAPI and may change before 1.0.
 The MCP transport is standard input/output. Protocol messages go to stdout;
 diagnostic logs, if any, go to stderr. An MCP host should run the process with a
 dedicated low-privilege OS identity and no payment credentials.
+It is a local demo surface and refuses to start with
+`PARIMIT_AUTH_MODE=oidc`: alpha.2 does not bind a verified OIDC identity to a
+stdio MCP session. The supported external pilot uses REST or the TypeScript SDK.
 
 Allowed tools are `create_payment_proposal`, `get_payment_status`,
 `cancel_payment_proposal`, `get_policy_decision`, `simulate_payment`, and

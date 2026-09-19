@@ -47,9 +47,10 @@ const forbiddenNetworkModules = new Set([
   "ws",
 ]);
 
-// Only these two files form the local HTTP edge. Everything else in src/ must
-// remain network-free, including new core modules and the MCP process.
-const localHttpEdgeBasenames = new Set(["http.ts", "server.ts"]);
+// These files form the HTTP/identity edge. Everything else in src/ must remain
+// network-free, including domain/storage contracts and the MCP process. auth.ts
+// may fetch the operator-configured OIDC JWKS; it never receives proposal URLs.
+const localHttpEdgeBasenames = new Set(["auth.ts", "http.ts", "server.ts"]);
 
 async function walk(directory: URL): Promise<URL[]> {
   const files: URL[] = [];

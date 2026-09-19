@@ -162,6 +162,7 @@ export interface PolicyConfig {
 export interface ParimitServiceOptions {
   databasePath?: string;
   receiptSecret?: string;
+  authenticationMode?: "demo_headers" | "oidc";
   clock?: () => Date;
   policy?: Partial<Omit<PolicyConfig, "blockedPayees" | "allowedPayees">> & {
     blockedPayees?: Iterable<string>;

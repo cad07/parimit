@@ -148,6 +148,13 @@ function requiredString(record: Record<string, unknown>, key: string): string {
 }
 
 export function callMcpTool(service: ParimitService, name: string, value: unknown): unknown {
+  if (service.authenticationMode === "oidc") {
+    throw new ParimitError(
+      "MCP_IDENTITY_UNSUPPORTED",
+      "The local MCP transport has no verified OIDC actor binding and is disabled in OIDC mode",
+      403,
+    );
+  }
   const args = argumentRecord(value);
   switch (name) {
     case "create_payment_proposal":
@@ -223,7 +230,7 @@ export async function handleMcpRequest(
       result: {
         protocolVersion: "2025-06-18",
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "parimit", version: "0.1.0-alpha.1" },
+        serverInfo: { name: "parimit", version: "0.1.0-alpha.2" },
         instructions:
           "Proposal-only safety server. It cannot approve proposals, reach payment rails, or move money.",
       },
@@ -250,6 +257,13 @@ export async function handleMcpRequest(
 }
 
 export function startMcpServer(environment: Record<string, string | undefined> = process.env): ParimitService {
+  if (environment.PARIMIT_AUTH_MODE === "oidc") {
+    throw new ParimitError(
+      "MCP_IDENTITY_UNSUPPORTED",
+      "The local MCP transport has no verified OIDC actor binding and is disabled in OIDC mode",
+      500,
+    );
+  }
   const service = createServiceFromEnvironment(environment);
   const lines = createInterface({ input: process.stdin, terminal: false, crlfDelay: Infinity });
   lines.on("line", async (line) => {

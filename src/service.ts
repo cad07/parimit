@@ -212,12 +212,25 @@ function originalRequestShape(input: NormalizedPaymentProposal): PaymentProposal
 export class ParimitService {
   readonly database: DatabaseSync;
   readonly policy: PolicyConfig;
+  readonly authenticationMode: "demo_headers" | "oidc";
   private readonly receiptSecret: string;
   private readonly clock: () => Date;
 
   constructor(options: ParimitServiceOptions = {}) {
     this.clock = options.clock ?? (() => new Date());
+    this.authenticationMode = options.authenticationMode ?? "demo_headers";
     this.receiptSecret = options.receiptSecret ?? "development-only-change-me";
+    if (
+      this.authenticationMode === "oidc" &&
+      (this.receiptSecret === "development-only-change-me" ||
+        Buffer.byteLength(this.receiptSecret, "utf8") < 32)
+    ) {
+      throw new ParimitError(
+        "INVALID_CONFIGURATION",
+        "OIDC mode requires a receiptSecret with at least 32 UTF-8 bytes",
+        500,
+      );
+    }
     const requestedPolicy = options.policy ?? {};
     this.policy = {
       rulesVersion: requestedPolicy.rulesVersion ?? DEFAULT_POLICY.rulesVersion,
@@ -578,30 +591,35 @@ export class ParimitService {
       this.policy.maxExpirySeconds,
     );
     const requestFingerprint = this.requestFingerprint(input);
-    const existing = this.database
-      .prepare("SELECT id, request_fingerprint FROM intents WHERE agent_id = ? AND idempotency_key = ?")
-      .get(input.agentId, input.idempotencyKey) as SqlRow | undefined;
-    if (existing) {
-      if (!safeEqualText(stringCell(existing, "request_fingerprint"), requestFingerprint)) {
-        throw new ParimitError(
-          "IDEMPOTENCY_CONFLICT",
-          "This agent already used the idempotency key for a different proposal",
-          409,
-        );
+    const result = this.transaction(() => {
+      const existing = this.database
+        .prepare(
+          "SELECT id, request_fingerprint FROM intents WHERE agent_id = ? AND idempotency_key = ?",
+        )
+        .get(input.agentId, input.idempotencyKey) as SqlRow | undefined;
+      if (existing) {
+        if (!safeEqualText(stringCell(existing, "request_fingerprint"), requestFingerprint)) {
+          throw new ParimitError(
+            "IDEMPOTENCY_CONFLICT",
+            "This agent already used the idempotency key for a different proposal",
+            409,
+          );
+        }
+        return { id: stringCell(existing, "id"), idempotentReplay: true };
       }
-      return { ...this.getIntent(stringCell(existing, "id")), idempotent_replay: true };
-    }
 
-    const policy = this.decidePolicy(input);
-    const id = randomUUID();
-    const createdAt = this.now();
-    const expiresAt = new Date(new Date(createdAt).getTime() + input.expiresInSeconds * 1_000).toISOString();
-    const status: InitialIntentStatus = policy.allowed ? "AWAITING_APPROVAL" : "POLICY_DENIED";
-    const intentHash = sha256(
-      canonicalJson(this.intentPayload(id, input, createdAt, expiresAt, policy, status)),
-    );
-
-    this.transaction(() => {
+      const policy = this.decidePolicy(input);
+      const id = randomUUID();
+      const createdAt = this.now();
+      const expiresAt = new Date(
+        new Date(createdAt).getTime() + input.expiresInSeconds * 1_000,
+      ).toISOString();
+      const status: InitialIntentStatus = policy.allowed
+        ? "AWAITING_APPROVAL"
+        : "POLICY_DENIED";
+      const intentHash = sha256(
+        canonicalJson(this.intentPayload(id, input, createdAt, expiresAt, policy, status)),
+      );
       this.database
         .prepare(
           `INSERT INTO intents
@@ -643,8 +661,12 @@ export class ParimitService {
         },
         createdAt,
       );
+      return { id, idempotentReplay: false };
     });
-    return this.getIntent(id);
+    return {
+      ...this.getIntent(result.id),
+      ...(result.idempotentReplay ? { idempotent_replay: true } : {}),
+    };
   }
 
   private getRawIntent(id: string): SqlRow {
@@ -745,6 +767,16 @@ export class ParimitService {
     return this.rowToIntent(row);
   }
 
+  assertIntentOwnedByAgent(id: string, actorIdValue: unknown): void {
+    this.expireDueIntents();
+    const actorId = requireIdentifier(actorIdValue, "actor_id");
+    requiredRow(
+      this.database
+        .prepare("SELECT id FROM intents WHERE id = ? AND agent_id = ?")
+        .get(id, actorId) as SqlRow | undefined,
+    );
+  }
+
   listIntents(filters: { agentId?: string; status?: IntentStatus; limit?: number } = {}): IntentView[] {
     this.expireDueIntents();
     const clauses: string[] = [];
@@ -795,30 +827,23 @@ export class ParimitService {
       throw new ParimitError("VALIDATION_ERROR", "decision must be 'APPROVE' or 'REJECT'", 400);
     }
     const decision = decisionValue;
-    const row = this.getRawIntent(id);
-    this.assertStoredIntegrity(row);
-    if (stringCell(row, "agent_id") === actorId) {
-      throw new ParimitError("AGENT_CANNOT_APPROVE", "The requesting agent cannot approve its own proposal", 403);
-    }
-    if (stringCell(row, "status") !== "AWAITING_APPROVAL") {
-      throw new ParimitError(
-        "INVALID_STATE",
-        `Proposal cannot be reviewed while in ${stringCell(row, "status")} state`,
-        409,
-      );
-    }
-    const createdAt = this.now();
-    const intentHash = stringCell(row, "intent_hash");
-    const receiptPayload = this.approvalReceiptPayload(
-      id,
-      intentHash,
-      actorId,
-      actorRole,
-      decision,
-      createdAt,
-    );
-    const receipt = hmacSha256(this.receiptSecret, receiptPayload);
     this.transaction(() => {
+      const row = this.getRawIntent(id);
+      this.assertStoredIntegrity(row);
+      if (stringCell(row, "agent_id") === actorId) {
+        throw new ParimitError(
+          "AGENT_CANNOT_APPROVE",
+          "The requesting agent cannot approve its own proposal",
+          403,
+        );
+      }
+      if (stringCell(row, "status") !== "AWAITING_APPROVAL") {
+        throw new ParimitError(
+          "INVALID_STATE",
+          `Proposal cannot be reviewed while in ${stringCell(row, "status")} state`,
+          409,
+        );
+      }
       const previous = this.database
         .prepare("SELECT decision FROM approvals WHERE intent_id = ? AND actor_id = ?")
         .get(id, actorId) as SqlRow | undefined;
@@ -829,6 +854,17 @@ export class ParimitService {
           409,
         );
       }
+      const createdAt = this.now();
+      const intentHash = stringCell(row, "intent_hash");
+      const receiptPayload = this.approvalReceiptPayload(
+        id,
+        intentHash,
+        actorId,
+        actorRole,
+        decision,
+        createdAt,
+      );
+      const receipt = hmacSha256(this.receiptSecret, receiptPayload);
       this.database
         .prepare(
           `INSERT INTO approvals
@@ -848,7 +884,16 @@ export class ParimitService {
           nextStatus = "AUTHORIZED_NO_DISPATCH";
         }
       }
-      this.database.prepare("UPDATE intents SET status = ? WHERE id = ?").run(nextStatus, id);
+      const update = this.database
+        .prepare("UPDATE intents SET status = ? WHERE id = ? AND status = 'AWAITING_APPROVAL'")
+        .run(nextStatus, id);
+      if (Number(update.changes) !== 1) {
+        throw new ParimitError(
+          "STATE_CONFLICT",
+          "Proposal state changed before the decision could be recorded",
+          409,
+        );
+      }
       this.appendAudit(
         id,
         decision === "APPROVE" ? "HUMAN_APPROVAL_RECORDED" : "HUMAN_REJECTION_RECORDED",
@@ -873,21 +918,36 @@ export class ParimitService {
     if (actorRole !== "agent" && actorRole !== "admin") {
       throw new ParimitError("FORBIDDEN", "Only the requesting agent or a demo admin may cancel", 403);
     }
-    const row = this.getRawIntent(id);
-    this.assertStoredIntegrity(row);
-    if (actorRole === "agent" && stringCell(row, "agent_id") !== actorId) {
-      throw new ParimitError("FORBIDDEN", "An agent may cancel only its own proposal", 403);
-    }
-    if (stringCell(row, "status") !== "AWAITING_APPROVAL") {
-      throw new ParimitError(
-        "INVALID_STATE",
-        `Proposal cannot be cancelled while in ${stringCell(row, "status")} state`,
-        409,
-      );
-    }
-    const occurredAt = this.now();
     this.transaction(() => {
-      this.database.prepare("UPDATE intents SET status = 'CANCELLED' WHERE id = ?").run(id);
+      const row =
+        actorRole === "agent"
+          ? requiredRow(
+              this.database
+                .prepare("SELECT * FROM intents WHERE id = ? AND agent_id = ?")
+                .get(id, actorId) as SqlRow | undefined,
+            )
+          : this.getRawIntent(id);
+      this.assertStoredIntegrity(row);
+      if (stringCell(row, "status") !== "AWAITING_APPROVAL") {
+        throw new ParimitError(
+          "INVALID_STATE",
+          `Proposal cannot be cancelled while in ${stringCell(row, "status")} state`,
+          409,
+        );
+      }
+      const occurredAt = this.now();
+      const update = this.database
+        .prepare(
+          "UPDATE intents SET status = 'CANCELLED' WHERE id = ? AND status = 'AWAITING_APPROVAL'",
+        )
+        .run(id);
+      if (Number(update.changes) !== 1) {
+        throw new ParimitError(
+          "STATE_CONFLICT",
+          "Proposal state changed before cancellation could be recorded",
+          409,
+        );
+      }
       this.appendAudit(id, "PROPOSAL_CANCELLED", actorId, { status: "CANCELLED" }, occurredAt);
     });
     return this.getIntent(id);
@@ -910,18 +970,17 @@ export class ParimitService {
     if (providerReferenceValue !== undefined) {
       providerReference = requireString(providerReferenceValue, "provider_reference", 200);
     }
-    const row = this.getRawIntent(id);
-    this.assertStoredIntegrity(row);
-    if (stringCell(row, "status") !== "AUTHORIZED_NO_DISPATCH") {
-      throw new ParimitError(
-        "INVALID_STATE",
-        "Mock observations may be attached only after all required human approvals",
-        409,
-      );
-    }
-    const observedAt = this.now();
     const status = statusValue as ObservationStatus;
     this.transaction(() => {
+      const row = this.getRawIntent(id);
+      this.assertStoredIntegrity(row);
+      if (stringCell(row, "status") !== "AUTHORIZED_NO_DISPATCH") {
+        throw new ParimitError(
+          "INVALID_STATE",
+          "Mock observations may be attached only after all required human approvals",
+          409,
+        );
+      }
       const latestObservation = this.latestObservation(id);
       if (latestObservation?.status === "IN_DOUBT") {
         throw new ParimitError(
@@ -930,6 +989,7 @@ export class ParimitService {
           409,
         );
       }
+      const observedAt = this.now();
       const observationId = randomUUID();
       this.database
         .prepare(
@@ -1211,6 +1271,10 @@ export class ParimitService {
       const matches = reviewEvents.filter((event) => {
         if (!isRecord(event.payload)) return false;
         return (
+          event.event_type ===
+            (approval.decision === "APPROVE"
+              ? "HUMAN_APPROVAL_RECORDED"
+              : "HUMAN_REJECTION_RECORDED") &&
           event.actor_id === approval.actor_id &&
           event.occurred_at === approval.created_at &&
           event.payload.actor_role === approval.actor_role &&
@@ -1238,6 +1302,7 @@ export class ParimitService {
     if (observationRows.length !== observationEvents.length) {
       addStateFailure("OBSERVATION_AUDIT_COUNT_MISMATCH");
     }
+    let observationStreamFrozen = false;
     for (const [index, observationRow] of observationRows.entries()) {
       const observationId = stringCell(observationRow, "id");
       const observationStatus = stringCell(observationRow, "status");
@@ -1248,6 +1313,11 @@ export class ParimitService {
       const observedAt = stringCell(observationRow, "observed_at");
       const source = stringCell(observationRow, "source");
       const event = observationEvents[index];
+
+      if (observationStreamFrozen) {
+        addStateFailure(`OBSERVATION_AFTER_IN_DOUBT:${observationId || index + 1}`);
+      }
+      if (observationStatus === "IN_DOUBT") observationStreamFrozen = true;
 
       if (
         observationId.length === 0 ||
@@ -1328,7 +1398,13 @@ export class ParimitService {
         addStateFailure("AUTHORIZED_APPROVAL_THRESHOLD_NOT_MET");
       }
     } else if (status === "REJECTED") {
-      if (!policyAllowed || validRejectCount < 1) addStateFailure("REJECTED_WITHOUT_VALID_REJECTION");
+      if (
+        !policyAllowed ||
+        validRejectCount !== 1 ||
+        validApproveCount >= requiredApprovals
+      ) {
+        addStateFailure("REJECTED_STATE_MISMATCH");
+      }
     } else if (status === "CANCELLED" || status === "EXPIRED") {
       if (!policyAllowed || validRejectCount !== 0 || validApproveCount >= requiredApprovals) {
         addStateFailure("TERMINAL_STATE_APPROVAL_MISMATCH");
@@ -1358,7 +1434,7 @@ export class ParimitService {
   safetyMetadata(): Record<string, unknown> {
     return {
       name: "Parimit",
-      version: "0.1.0-alpha.1",
+      version: "0.1.0-alpha.2",
       mode: "PROPOSAL_ONLY",
       moves_money: false,
       connects_to_upi: false,
@@ -1377,8 +1453,16 @@ export class ParimitService {
       mock_observation_retry_permitted: false,
       currency: "INR",
       amount_unit: "minor (paise), represented as a decimal string",
-      demo_auth_warning:
-        "x-parimit-actor and x-parimit-role are spoofable demo headers. Replace them with verified OIDC/WebAuthn identities before any real deployment.",
+      identity: {
+        mode: this.authenticationMode,
+        cryptographically_verified: this.authenticationMode === "oidc",
+      },
+      ...(this.authenticationMode === "demo_headers"
+        ? {
+            demo_auth_warning:
+              "x-parimit-actor and x-parimit-role are spoofable local-demo headers and are restricted to loopback.",
+          }
+        : {}),
       rules: {
         version: this.policy.rulesVersion,
         per_transaction_limit_minor: String(this.policy.perTransactionLimitMinor),
@@ -1416,19 +1500,41 @@ export function createServiceFromEnvironment(
   environment: Record<string, string | undefined> = process.env,
 ): ParimitService {
   const demoModeValue = (environment.PARIMIT_DEMO_MODE ?? "true").toLocaleLowerCase("en-US");
-  if (demoModeValue !== "true" && demoModeValue !== "1") {
+  const authenticationMode = environment.PARIMIT_AUTH_MODE ?? "demo_headers";
+  const demoMode = demoModeValue === "true" || demoModeValue === "1";
+  if (!demoMode && authenticationMode !== "oidc") {
     throw new ParimitError(
       "DEMO_ONLY_BUILD",
-      "This alpha uses spoofable demo identity headers and refuses to start outside demo mode",
+      "Non-demo startup requires PARIMIT_AUTH_MODE=oidc",
+      500,
+    );
+  }
+  if (authenticationMode !== "demo_headers" && authenticationMode !== "oidc") {
+    throw new ParimitError(
+      "INVALID_CONFIGURATION",
+      "PARIMIT_AUTH_MODE must be 'demo_headers' or 'oidc'",
       500,
     );
   }
   const allowed = parseEnvironmentSet(environment.PARIMIT_ALLOWED_PAYEES);
+  const receiptSecret =
+    environmentValue(environment, "PARIMIT_RECEIPT_KEY", "PARIMIT_RECEIPT_SECRET") ??
+    "development-only-change-me";
+  if (
+    authenticationMode === "oidc" &&
+    (receiptSecret === "development-only-change-me" ||
+      Buffer.byteLength(receiptSecret, "utf8") < 32)
+  ) {
+    throw new ParimitError(
+      "INVALID_CONFIGURATION",
+      "OIDC mode requires PARIMIT_RECEIPT_KEY with at least 32 UTF-8 bytes",
+      500,
+    );
+  }
   return new ParimitService({
     databasePath: environment.PARIMIT_DB_PATH ?? "./data/parimit.db",
-    receiptSecret:
-      environmentValue(environment, "PARIMIT_RECEIPT_KEY", "PARIMIT_RECEIPT_SECRET") ??
-      "development-only-change-me",
+    receiptSecret,
+    authenticationMode,
     policy: {
       perTransactionLimitMinor: parsePositiveEnvironmentInteger(
         environmentValue(environment, "PARIMIT_PER_TX_LIMIT", "PARIMIT_PER_TRANSACTION_LIMIT_MINOR"),

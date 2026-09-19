@@ -12,8 +12,7 @@ Describe the user-visible behavior and why the change is needed.
 
 ## Verification
 
-- [ ] `npm test`
-- [ ] `npm run check:boundary`
+- [ ] `npm run check`
 - [ ] Documentation and `openapi.yaml` match interface changes.
 - [ ] Fixtures and logs contain no secrets, personal data, or real transactions.
 

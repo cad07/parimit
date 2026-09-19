@@ -3,8 +3,9 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 
+import { LocalDemoHeaderIdentityProvider } from "../src/auth.ts";
 import { createHttpHandler } from "../src/http.ts";
-import { callMcpTool, handleMcpRequest, MCP_TOOLS } from "../src/mcp.ts";
+import { callMcpTool, handleMcpRequest, MCP_TOOLS, startMcpServer } from "../src/mcp.ts";
 import { createServiceFromEnvironment, ParimitService } from "../src/service.ts";
 
 function proposal(idempotencyKey: string, amountMinor = "100") {
@@ -22,9 +23,19 @@ async function json(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
 
+function demoHeaders(actor: string, role: "agent" | "approver" | "admin") {
+  return { "x-parimit-actor": actor, "x-parimit-role": role };
+}
+
+function demoIdentityProvider() {
+  return new LocalDemoHeaderIdentityProvider({ demoMode: true, host: "127.0.0.1" });
+}
+
 test("HTTP API is end-to-end proposal-only with demo human approval and audit verification", async (t) => {
   const service = new ParimitService({ receiptSecret: "http-test-secret" });
-  const server = createServer(createHttpHandler(service));
+  const server = createServer(
+    createHttpHandler(service, { identityProvider: demoIdentityProvider() }),
+  );
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -43,7 +54,10 @@ test("HTTP API is end-to-end proposal-only with demo human approval and audit ve
 
   const createResponse = await fetch(`${base}/v1/intents`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...demoHeaders("agent-http", "agent"),
+    },
     body: JSON.stringify(proposal("http-create")),
   });
   assert.equal(createResponse.status, 201);
@@ -77,7 +91,10 @@ test("HTTP API is end-to-end proposal-only with demo human approval and audit ve
 
   const mockResponse = await fetch(`${base}/v1/demo/intents/${id}/observations`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...demoHeaders("operator-http", "admin"),
+    },
     body: JSON.stringify({ status: "IN_DOUBT", provider_reference: "demo-only" }),
   });
   assert.equal(mockResponse.status, 200);
@@ -86,7 +103,10 @@ test("HTTP API is end-to-end proposal-only with demo human approval and audit ve
 
   const postUncertaintyResponse = await fetch(`${base}/v1/demo/intents/${id}/observations`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...demoHeaders("operator-http", "admin"),
+    },
     body: JSON.stringify({ status: "SUCCEEDED", provider_reference: "not-accepted" }),
   });
   assert.equal(postUncertaintyResponse.status, 409);
@@ -96,7 +116,9 @@ test("HTTP API is end-to-end proposal-only with demo human approval and audit ve
     "IN_DOUBT_FROZEN",
   );
 
-  const auditVerify = await fetch(`${base}/v1/intents/${id}/audit/verify`);
+  const auditVerify = await fetch(`${base}/v1/intents/${id}/audit/verify`, {
+    headers: demoHeaders("agent-http", "agent"),
+  });
   assert.equal(auditVerify.status, 200);
   assert.equal(((await json(auditVerify)).data as Record<string, unknown>).valid, true);
 
@@ -114,7 +136,9 @@ test("HTTP API is end-to-end proposal-only with demo human approval and audit ve
 
 test("all HTTP failures use the consistent error envelope", async (t) => {
   const service = new ParimitService({ receiptSecret: "http-test-secret" });
-  const server = createServer(createHttpHandler(service));
+  const server = createServer(
+    createHttpHandler(service, { identityProvider: demoIdentityProvider() }),
+  );
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -123,7 +147,10 @@ test("all HTTP failures use the consistent error envelope", async (t) => {
   const address = server.address() as AddressInfo;
   const response = await fetch(`http://127.0.0.1:${address.port}/v1/intents`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...demoHeaders("agent-http", "agent"),
+    },
     body: "{not-json",
   });
   assert.equal(response.status, 400);
@@ -133,6 +160,7 @@ test("all HTTP failures use the consistent error envelope", async (t) => {
 
   const oversizedLimit = await fetch(
     `http://127.0.0.1:${address.port}/v1/intents?limit=201`,
+    { headers: demoHeaders("human-http", "approver") },
   );
   assert.equal(oversizedLimit.status, 400);
   assert.equal(
@@ -142,6 +170,7 @@ test("all HTTP failures use the consistent error envelope", async (t) => {
 
   const oversizedAgentId = await fetch(
     `http://127.0.0.1:${address.port}/v1/intents?agent_id=${"a".repeat(129)}`,
+    { headers: demoHeaders("human-http", "approver") },
   );
   assert.equal(oversizedAgentId.status, 400);
   assert.equal(
@@ -155,8 +184,7 @@ test("all HTTP failures use the consistent error envelope", async (t) => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-parimit-actor": "human-http",
-        "x-parimit-role": "approver",
+        ...demoHeaders("human-http", "approver"),
       },
       body: JSON.stringify({ decision: "APPROVE", unexpected: true }),
     },
@@ -173,7 +201,10 @@ test("all HTTP failures use the consistent error envelope", async (t) => {
     `http://127.0.0.1:${address.port}/v1/demo/intents/not-looked-up/observations`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...demoHeaders("operator-http", "admin"),
+      },
       body: JSON.stringify({ status: "PENDING", unexpected: true }),
     },
   );
@@ -189,7 +220,10 @@ test("all HTTP failures use the consistent error envelope", async (t) => {
     `http://127.0.0.1:${address.port}/v1/demo/intents/%/observations`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...demoHeaders("operator-http", "admin"),
+      },
       body: JSON.stringify({ status: "PENDING" }),
     },
   );
@@ -205,6 +239,7 @@ test("all HTTP failures use the consistent error envelope", async (t) => {
     .run('{"tampered":true}', tamperedIntent.id);
   const tamperedAuditResponse = await fetch(
     `http://127.0.0.1:${address.port}/v1/intents/${tamperedIntent.id}/audit`,
+    { headers: demoHeaders("agent-http", "agent") },
   );
   assert.equal(tamperedAuditResponse.status, 500);
   assert.equal(
@@ -253,11 +288,11 @@ test("MCP exposes proposal/status/policy/cancel/mock/audit tools but no approval
   const initializeResult = (initialized?.result ?? {}) as Record<string, unknown>;
   assert.deepEqual(initializeResult.serverInfo, {
     name: "parimit",
-    version: "0.1.0-alpha.1",
+    version: "0.1.0-alpha.2",
   });
 });
 
-test("environment config accepts canonical names and refuses non-demo startup", (t) => {
+test("environment config accepts canonical names and requires OIDC for non-demo startup", (t) => {
   const service = createServiceFromEnvironment({
     PARIMIT_DB_PATH: ":memory:",
     PARIMIT_DEMO_MODE: "true",
@@ -278,6 +313,41 @@ test("environment config accepts canonical names and refuses non-demo startup", 
   assert.equal(service.policy.allowedPayees, null);
   assert.throws(
     () => createServiceFromEnvironment({ PARIMIT_DEMO_MODE: "false", PARIMIT_DB_PATH: ":memory:" }),
-    /refuses to start outside demo mode/,
+    /Non-demo startup requires PARIMIT_AUTH_MODE=oidc/,
+  );
+  for (const receiptKey of [undefined, "too-short"]) {
+    assert.throws(
+      () =>
+        createServiceFromEnvironment({
+          PARIMIT_AUTH_MODE: "oidc",
+          PARIMIT_DEMO_MODE: "false",
+          PARIMIT_DB_PATH: ":memory:",
+          ...(receiptKey === undefined ? {} : { PARIMIT_RECEIPT_KEY: receiptKey }),
+        }),
+      /requires PARIMIT_RECEIPT_KEY with at least 32 UTF-8 bytes/,
+    );
+  }
+  const validTestReceiptKey = "r".repeat(32);
+  const oidcService = createServiceFromEnvironment({
+    PARIMIT_AUTH_MODE: "oidc",
+    PARIMIT_DEMO_MODE: "false",
+    PARIMIT_DB_PATH: ":memory:",
+    PARIMIT_RECEIPT_KEY: validTestReceiptKey,
+  });
+  t.after(() => oidcService.close());
+  assert.equal(oidcService.authenticationMode, "oidc");
+  assert.throws(
+    () => callMcpTool(oidcService, "get_policy_decision", proposal("oidc-mcp-bypass")),
+    /MCP transport has no verified OIDC actor binding/,
+  );
+  assert.throws(
+    () =>
+      startMcpServer({
+        PARIMIT_AUTH_MODE: "oidc",
+        PARIMIT_DEMO_MODE: "false",
+        PARIMIT_DB_PATH: ":memory:",
+        PARIMIT_RECEIPT_KEY: validTestReceiptKey,
+      }),
+    /MCP transport has no verified OIDC actor binding/,
   );
 });

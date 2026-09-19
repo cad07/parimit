@@ -1,22 +1,29 @@
 openapi: 3.1.0
 info:
   title: Parimit API
-  version: 0.1.0-alpha.1
-  summary: Proposal-only payment safety and human-approval demo
+  version: 0.1.0-alpha.2
+  summary: Proposal-only payment governance and human-review pilot API
   description: |
     Parimit accepts payment proposals, evaluates deterministic policy,
-    records demo human decisions, and produces mock observations. It has no
+    records human decisions, and produces mock observations. It has no
     live payment connector and cannot move money.
 
-    The `x-parimit-actor` and `x-parimit-role` headers are spoofable demo
-    identity, not production authentication. `AUTHORIZED_NO_DISPATCH` means an
-    exact proposal received the required demo approvals; it never means paid.
+    External pilots use signed OIDC bearer tokens and map an immutable subject
+    to exactly one of `agent`, `approver`, or `admin`. The
+    `x-parimit-actor`/`x-parimit-role` alternative is restricted to an explicit
+    loopback demo and is not production authentication.
+    `AUTHORIZED_NO_DISPATCH` means an exact proposal received the required
+    approvals; it never means paid.
   license:
     name: MIT
     identifier: MIT
 servers:
   - url: http://127.0.0.1:8787
     description: Local safe demo
+security:
+  - OidcBearer: []
+  - DemoActor: []
+    DemoRole: []
 tags:
   - name: Safety
   - name: Proposals
@@ -26,6 +33,7 @@ tags:
 paths:
   /v1/safety:
     get:
+      security: []
       tags: [Safety]
       operationId: getSafetyMetadata
       summary: Describe the enforced proposal-only boundary
@@ -36,12 +44,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SafetyResponse"
+  /v1/identity:
+    get:
+      tags: [Safety]
+      operationId: getAuthenticatedIdentity
+      summary: Return the authenticated actor identifier and Parimit role
+      description: >-
+        OIDC actor identifiers are deterministic, non-PII hashes derived from
+        the configured issuer and immutable subject. Agents use `actor_id` as
+        `requested_by.id` when creating or simulating a proposal.
+      responses:
+        "200":
+          description: Authenticated Parimit identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityResponse"
+        "401":
+          $ref: "#/components/responses/AuthenticationRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/IdentityProviderUnavailable"
   /v1/intents:
     post:
       tags: [Proposals]
       operationId: createPaymentProposal
       summary: Create or idempotently replay a payment proposal
-      description: Proposes an intent and evaluates policy. It does not execute a payment.
+      description: >-
+        Agent-only. `requested_by.id` must equal the authenticated actor ID.
+        Proposes an intent and evaluates policy; it does not execute a payment.
       requestBody:
         required: true
         content:
@@ -77,16 +109,23 @@ paths:
                 $ref: "#/components/schemas/IntentResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/AuthenticationRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
         "500":
           $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/IdentityProviderUnavailable"
     get:
       tags: [Proposals]
       operationId: listPaymentProposals
       summary: List proposals
+      description: Agents receive only their own proposals. Approvers and admins may list all proposals.
       parameters:
         - name: agent_id
           in: query
@@ -120,14 +159,22 @@ paths:
                       $ref: "#/components/schemas/Intent"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/AuthenticationRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/IntegrityError"
+        "503":
+          $ref: "#/components/responses/IdentityProviderUnavailable"
   /v1/intents/simulate:
     post:
       tags: [Mock simulation]
       operationId: simulateProposalPolicy
       summary: Evaluate policy without persisting a proposal
-      description: This is a dry-run policy evaluation and never contacts a rail.
+      description: >-
+        Agent-only. `requested_by.id` must equal the authenticated actor ID.
+        This is a dry-run policy evaluation and never contacts a rail.
       requestBody:
         required: true
         content:
@@ -155,8 +202,14 @@ paths:
                         const: false
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/AuthenticationRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
+        "503":
+          $ref: "#/components/responses/IdentityProviderUnavailable"
   /v1/intents/{intentId}:
     parameters:
       - $ref: "#/components/parameters/IntentId"
@@ -164,6 +217,7 @@ paths:
       tags: [Proposals]
       operationId: getPaymentProposal
       summary: Get a proposal and its current demo state
+      description: Agents can read only their own proposals. Approvers and admins may read all proposals.
       responses:
         "200":
           description: Proposal
@@ -173,8 +227,14 @@ paths:
                 $ref: "#/components/schemas/IntentResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/AuthenticationRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/IntegrityError"
+        "503":
+          $ref: "#/components/responses/IdentityProviderUnavailable"
   /v1/intents/{intentId}/cancel:
     parameters:
       - $ref: "#/components/parameters/IntentId"
@@ -182,19 +242,20 @@ paths:
       tags: [Proposals]
       operationId: cancelPaymentProposal
       summary: Cancel an eligible proposal
-      description: A demo agent may cancel only its own awaiting proposal; a demo admin may cancel an eligible proposal.
+      description: An agent may cancel only its own awaiting proposal; an admin may cancel an eligible proposal.
       security:
+        - OidcBearer: []
         - DemoActor: []
           DemoRole: []
       responses:
         "200":
-          description: Cancelled proposal and demo-auth warning
+          description: Cancelled proposal; loopback demo responses also include a warning
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/IntentResponseWithWarning"
         "401":
-          $ref: "#/components/responses/DemoAuthRequired"
+          $ref: "#/components/responses/AuthenticationRequired"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
@@ -203,18 +264,21 @@ paths:
           $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/IntegrityError"
+        "503":
+          $ref: "#/components/responses/IdentityProviderUnavailable"
   /v1/intents/{intentId}/approvals:
     parameters:
       - $ref: "#/components/parameters/IntentId"
     post:
       tags: [Human review]
       operationId: recordHumanDecision
-      summary: Record a demo human approval or rejection
+      summary: Record a human approval or rejection
       description: |
-        Human-only route. Demo headers are spoofable and must be replaced with
-        verified human identity before shared use. An approval cannot dispatch
-        or execute a payment.
+        `approver` or `admin` only. OIDC is required for a shared pilot; demo
+        headers remain loopback-only. An approval cannot dispatch or execute a
+        payment.
       security:
+        - OidcBearer: []
         - DemoActor: []
           DemoRole: []
       requestBody:
@@ -231,7 +295,7 @@ paths:
                   enum: [APPROVE, REJECT]
       responses:
         "200":
-          description: Updated proposal and demo-auth warning
+          description: Updated proposal; loopback demo responses also include a warning
           content:
             application/json:
               schema:
@@ -239,7 +303,7 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
-          $ref: "#/components/responses/DemoAuthRequired"
+          $ref: "#/components/responses/AuthenticationRequired"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
@@ -250,6 +314,8 @@ paths:
           $ref: "#/components/responses/PayloadTooLarge"
         "500":
           $ref: "#/components/responses/IntegrityError"
+        "503":
+          $ref: "#/components/responses/IdentityProviderUnavailable"
   /v1/intents/{intentId}/audit:
     parameters:
       - $ref: "#/components/parameters/IntentId"
@@ -257,6 +323,7 @@ paths:
       tags: [Audit]
       operationId: getProposalAuditEvents
       summary: Get the hash-chained audit history
+      description: Agents can read only their own proposal audit; approvers and admins may read all.
       responses:
         "200":
           description: Audit events in sequence order
@@ -272,8 +339,14 @@ paths:
                       $ref: "#/components/schemas/AuditEvent"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/AuthenticationRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/IntegrityError"
+        "503":
+          $ref: "#/components/responses/IdentityProviderUnavailable"
   /v1/intents/{intentId}/audit/verify:
     parameters:
       - $ref: "#/components/parameters/IntentId"
@@ -281,6 +354,7 @@ paths:
       tags: [Audit]
       operationId: verifyProposalIntegrity
       summary: Verify proposal, approval, and audit integrity
+      description: Agents can verify only their own proposals; approvers and admins may verify all.
       responses:
         "200":
           description: Integrity report
@@ -294,6 +368,14 @@ paths:
                     $ref: "#/components/schemas/IntegrityReport"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/AuthenticationRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/IntegrityError"
+        "503":
+          $ref: "#/components/responses/IdentityProviderUnavailable"
   /v1/demo/intents/{intentId}/observations:
     parameters:
       - $ref: "#/components/parameters/IntentId"
@@ -302,7 +384,8 @@ paths:
       operationId: recordMockObservation
       summary: Record a demo-only mock outcome
       description: >-
-        Available only after the proposal reaches `AUTHORIZED_NO_DISPATCH`. No
+        Admin-only. Available only after the proposal reaches
+        `AUTHORIZED_NO_DISPATCH`. No
         funds move. Once `IN_DOUBT` is recorded, every later mock observation is
         rejected with HTTP 409 and error code `IN_DOUBT_FROZEN`; this alpha has
         no authorized reconciliation mechanism.
@@ -331,6 +414,10 @@ paths:
                 $ref: "#/components/schemas/IntentResponseWithWarning"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/AuthenticationRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -339,8 +426,17 @@ paths:
           $ref: "#/components/responses/PayloadTooLarge"
         "500":
           $ref: "#/components/responses/IntegrityError"
+        "503":
+          $ref: "#/components/responses/IdentityProviderUnavailable"
 components:
   securitySchemes:
+    OidcBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Signed OIDC access token validated against the configured issuer,
+        audience, algorithm allowlist, expiration, and remote JWKS.
     DemoActor:
       type: apiKey
       in: header
@@ -366,14 +462,14 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
-    DemoAuthRequired:
-      description: Demo identity headers are missing
+    AuthenticationRequired:
+      description: A bearer token or explicit loopback-demo identity is missing or invalid
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
     Forbidden:
-      description: The demo actor lacks authority for this operation
+      description: The authenticated actor lacks the required role or ownership
       content:
         application/json:
           schema:
@@ -408,7 +504,38 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+    IdentityProviderUnavailable:
+      description: Configured OIDC signing keys are temporarily unavailable or invalid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    IdentityResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [actor_id, actor_role, authentication_method]
+          properties:
+            actor_id:
+              type: string
+              minLength: 1
+              maxLength: 128
+            actor_role:
+              type: string
+              enum: [agent, approver, admin]
+            authentication_method:
+              type: string
+              enum: [oidc, local_demo_headers]
+            issuer:
+              type: string
+              format: uri
+        warning:
+          type: string
+          description: Present only when spoofable loopback demo headers authenticated the request.
     PaymentProposalInput:
       type: object
       additionalProperties: false
@@ -713,12 +840,13 @@ components:
           $ref: "#/components/schemas/Intent"
     IntentResponseWithWarning:
       type: object
-      required: [data, warning]
+      required: [data]
       properties:
         data:
           $ref: "#/components/schemas/Intent"
         warning:
           type: string
+          description: Present for local demo authentication or mock-outcome safety notices.
     ErrorResponse:
       type: object
       required: [error]

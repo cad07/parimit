@@ -7,6 +7,46 @@ release.
 
 ## [Unreleased]
 
+### Added
+
+- Added OIDC bearer-token verification with issuer, audience, signature,
+  lifetime, algorithm, JWKS rotation, and fail-closed role-mapping checks.
+- Added authenticated identity discovery and server-enforced `agent`,
+  `approver`, and `admin` route boundaries, including agent ownership scope.
+- Added a dependency-free, role-shaped TypeScript SDK preview and a pilot
+  client example with no execution capability.
+- Added a conservative single-instance, single-tenant OIDC pilot deployment
+  guide, Compose profile, acceptance criteria, backup, rollback, and stop
+  procedures.
+- Added a PostgreSQL 14+ schema and transaction contract covering per-agent
+  policy locks, per-intent mutation locks, consistent integrity snapshots,
+  append-only evidence, audit-fork prevention, and stable observation order.
+
+### Changed
+
+- Protected every REST operation except safety metadata and preflight with an
+  authenticated identity; local demo headers now require explicit demo mode
+  and loopback isolation (or the documented host-loopback container escape
+  hatch).
+- Advanced runtime, MCP, OpenAPI, and SDK metadata to `0.1.0-alpha.2`.
+- Disabled stdio MCP in OIDC mode until that transport can bind a verified
+  actor identity; the hosted pilot remains REST/SDK-only.
+- Hardened identity handling with explicit server-side role mappings,
+  provider/service mode matching, bounded token lifetimes and JWKS streaming,
+  RSA key-strength checks, ownership-first cancellation, and generic internal
+  error responses.
+- Serialized idempotency, policy evaluation, and lifecycle transitions inside
+  immediate SQLite write transactions, and expanded integrity verification to
+  bind review event types, state thresholds, and ordered observation evidence.
+
+### Known limitations
+
+- The PostgreSQL work is schema and contract only. The running service remains
+  SQLite-backed until an async repository port and live parity/concurrency
+  suite are complete.
+- The hosted pilot is REST/SDK-only; the browser dashboard remains a local demo
+  because no browser OIDC login or token flow is shipped.
+
 ## [0.1.0-alpha.1] - 2026-09-19
 
 ### Security

@@ -6,19 +6,23 @@ there is no live payment executor.
 
 ```mermaid
 flowchart LR
-    A[Untrusted AI agent] -->|propose, inspect, cancel| I[REST or MCP interface]
-    H[Human operator] -->|approve or reject| D[Human dashboard]
+    A[OIDC agent client] -->|propose, inspect, cancel| I[REST identity edge]
+    H[OIDC human operator] -->|approve or reject| I
+    MC[Local MCP client] -->|proposal-safe stdio demo| C[Local MCP interface]
+    LH[Local demo human] -->|spoofable demo role| D[Local dashboard]
+    D -->|local REST| I
     I --> V[Intent validation]
+    C --> V
     V --> P[Deterministic policy]
     P --> S[(Proposal store)]
-    D --> B[Approval service]
+    I --> B[Approval service]
     B --> S
     B --> R[Non-dispatchable receipt]
-    S --> L[Hash-chained audit log]
-    R --> M[Mock outcome simulator]
-    M --> L
+    S --> AL[Hash-chained audit log]
+    R --> MS[Mock outcome simulator]
+    MS --> AL
     X[Bank / PSP / payment rail]:::blocked
-    M -. no connection .-> X
+    MS -. no connection .-> X
 
     classDef blocked fill:#fff1f1,stroke:#c62828,stroke-dasharray: 5 5
 ```
@@ -27,10 +31,10 @@ flowchart LR
 
 | Zone | Trust | Allowed capabilities |
 | --- | --- | --- |
-| Agent / MCP client | Untrusted | Propose, read, cancel eligible proposals, request mock simulation |
-| Public REST edge | Untrusted input | Parse and validate; demo headers are spoofable, with no authentication or rate limiting |
+| Agent / MCP client | Untrusted | Propose, read, and cancel eligible proposals; MCP remains a local process boundary |
+| REST identity edge | Untrusted input | Verify OIDC bearer tokens or, only on an explicit local demo, accept spoofable headers |
 | Domain and policy core | Trusted deterministic code | Validate and transition state; no network I/O |
-| Human dashboard | Human-controlled demo surface | Approve or reject an exact immutable proposal |
+| Human dashboard | Local demonstration surface | Spoofable demo identities exercise review flows; it is not part of the hosted OIDC pilot |
 | Store and audit log | Integrity-sensitive | Persist proposals and append events |
 | Mock rail | Non-financial | Generate labelled demo outcomes only |
 | Real provider | Out of scope | No connector exists in the default build |
@@ -46,7 +50,7 @@ point.
 that allowed, rejected, or escalated a proposal. A higher-risk proposal can
 require two distinct human approvers.
 
-**Approval.** A demo reviewer decision bound to the v2 digest of immutable
+**Approval.** An authenticated reviewer decision bound to the v2 digest of immutable
 proposal inputs and the initial policy decision. The integrity verifier also
 cross-checks later decisions and lifecycle state against the local event
 history before returning an authorization receipt.
@@ -91,15 +95,20 @@ reconciliation mechanism.
 
 ## Process boundaries
 
-The HTTP server serves the dashboard and REST API. The MCP process communicates
-over standard input/output so protocol data is not mixed with ordinary logs.
+The HTTP server serves the local dashboard and REST API. The MCP process communicates
+over standard input/output so protocol data is not mixed with ordinary logs;
+it is disabled in OIDC mode because alpha.2 has no verified actor binding for
+stdio MCP.
 Both call the same proposal-oriented application services. Domain and policy
 modules do not import networking modules; the CI boundary scanner enforces that
 constraint statically.
 
-The alpha implementation is optimized for local evaluation. Production-grade
-identity, tenancy, durable transactional storage, key management, and external
-audit anchoring are deliberately not implied.
+The alpha.2 HTTP edge can verify OIDC identity and fail closed on role mapping,
+but the shipped runtime remains single-tenant and SQLite-backed. The
+PostgreSQL schema and transaction contract under `db/postgres/` are an
+integration track, not a runtime selector. Multi-tenancy, managed key custody,
+live PostgreSQL parity, rate limiting, and external audit anchoring are still
+deliberately not implied.
 
 ## Source provenance
 

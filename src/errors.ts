@@ -14,6 +14,5 @@ export class ParimitError extends Error {
 
 export function asParimitError(error: unknown): ParimitError {
   if (error instanceof ParimitError) return error;
-  const message = error instanceof Error ? error.message : "Unexpected error";
-  return new ParimitError("INTERNAL_ERROR", message, 500);
+  return new ParimitError("INTERNAL_ERROR", "Unexpected internal error", 500);
 }

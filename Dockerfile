@@ -1,14 +1,15 @@
 FROM node:24-bookworm-slim
 
 ENV NODE_ENV=production \
-    PARIMIT_HOST=0.0.0.0 \
+    PARIMIT_HOST=127.0.0.1 \
     PARIMIT_PORT=8787 \
     PARIMIT_DB_PATH=/data/parimit.db \
-    PARIMIT_DEMO_MODE=true
+    PARIMIT_DEMO_MODE=true \
+    PARIMIT_AUTH_MODE=demo_headers
 
 WORKDIR /app
 
-COPY --chown=node:node package.json tsconfig.json ./
+COPY --chown=node:node package.json tsconfig.json LICENSE NOTICE ./
 
 COPY --chown=node:node src ./src
 COPY --chown=node:node public ./public

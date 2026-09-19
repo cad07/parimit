@@ -2,9 +2,10 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
+import type { AuthenticatedActor, IdentityProvider } from "./auth.ts";
 import { asParimitError, ParimitError } from "./errors.ts";
 import type { ParimitService } from "./service.ts";
-import { INTENT_STATUSES, type ActorRole, type IntentStatus } from "./types.ts";
+import { INTENT_STATUSES, type IntentStatus } from "./types.ts";
 
 const JSON_LIMIT_BYTES = 1_048_576;
 export const DEMO_AUTH_WARNING =
@@ -71,19 +72,6 @@ function requireJsonObject(
   return value as Record<string, unknown>;
 }
 
-function requireDemoActor(request: IncomingMessage): { actorId: string; actorRole: ActorRole } {
-  const actor = request.headers["x-parimit-actor"];
-  const role = request.headers["x-parimit-role"];
-  if (typeof actor !== "string" || typeof role !== "string") {
-    throw new ParimitError(
-      "DEMO_AUTH_REQUIRED",
-      "x-parimit-actor and x-parimit-role headers are required for this demo action",
-      401,
-    );
-  }
-  return { actorId: actor, actorRole: role.toLocaleLowerCase("en-US") as ActorRole };
-}
-
 function serveStatic(publicDirectory: string, pathname: string, response: ServerResponse): boolean {
   const root = resolve(publicDirectory);
   let decoded: string;
@@ -126,9 +114,101 @@ function parseIntentPath(pathname: string): { id: string; action?: string } | nu
 
 export interface HttpHandlerOptions {
   publicDirectory?: string;
+  identityProvider?: IdentityProvider;
 }
 
 export function createHttpHandler(service: ParimitService, options: HttpHandlerOptions = {}) {
+  if (options.identityProvider === undefined) {
+    throw new ParimitError(
+      "INVALID_AUTH_CONFIGURATION",
+      "HTTP handlers require an explicit identity provider bound to the server's trust mode",
+      500,
+    );
+  }
+  const expectedAuthenticationMethod =
+    service.authenticationMode === "oidc" ? "oidc" : "local_demo_headers";
+  if (
+    options.identityProvider !== undefined &&
+    options.identityProvider.authenticationMethod !== expectedAuthenticationMethod
+  ) {
+    throw new ParimitError(
+      "INVALID_AUTH_CONFIGURATION",
+      "HTTP identity provider mode must match the service authentication mode",
+      500,
+    );
+  }
+  const identityProvider = options.identityProvider;
+
+  const authenticate = async (request: IncomingMessage): Promise<AuthenticatedActor> => {
+    const actor = await identityProvider.authenticate(request.headers);
+    if (
+      typeof actor.actorId !== "string" ||
+      actor.actorId.length === 0 ||
+      actor.actorId.length > 128 ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:@/+\-]*$/.test(actor.actorId) ||
+      (actor.actorRole !== "agent" &&
+        actor.actorRole !== "approver" &&
+        actor.actorRole !== "admin") ||
+      typeof actor.subject !== "string" ||
+      actor.subject.length === 0 ||
+      actor.authenticationMethod !== expectedAuthenticationMethod
+    ) {
+      throw new ParimitError(
+        "INVALID_IDENTITY_PROVIDER_RESULT",
+        "Identity provider returned an invalid authenticated actor",
+        500,
+      );
+    }
+    return actor;
+  };
+
+  const requireRole = (
+    actor: AuthenticatedActor,
+    allowed: readonly AuthenticatedActor["actorRole"][],
+  ): void => {
+    if (!allowed.includes(actor.actorRole)) {
+      throw new ParimitError(
+        "FORBIDDEN",
+        `This action requires one of these roles: ${allowed.join(", ")}`,
+        403,
+      );
+    }
+  };
+
+  const authorizeIntentRead = (actor: AuthenticatedActor, intentId: string): void => {
+    if (actor.actorRole === "agent") {
+      service.assertIntentOwnedByAgent(intentId, actor.actorId);
+    }
+  };
+
+  const authenticatedProposal = (
+    value: unknown,
+    actor: AuthenticatedActor,
+  ): Record<string, unknown> => {
+    requireRole(actor, ["agent"]);
+    const body = requireJsonObject(value, [
+      "idempotency_key",
+      "requested_by",
+      "on_behalf_of",
+      "amount",
+      "payee_reference",
+      "purpose",
+      "expires_in_seconds",
+    ]);
+    const requestedBy = requireJsonObject(body.requested_by, ["type", "id"]);
+    if (requestedBy.type !== "agent" || requestedBy.id !== actor.actorId) {
+      throw new ParimitError(
+        "ACTOR_IDENTITY_MISMATCH",
+        "requested_by.id must match the authenticated agent identity",
+        403,
+      );
+    }
+    return body;
+  };
+
+  const demoWarning = (actor: AuthenticatedActor): Record<string, string> =>
+    actor.authenticationMethod === "local_demo_headers" ? { warning: DEMO_AUTH_WARNING } : {};
+
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     try {
       const method = request.method ?? "GET";
@@ -139,7 +219,8 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
         response.writeHead(204, {
           allow: "GET, POST, OPTIONS",
           "access-control-allow-methods": "GET, POST, OPTIONS",
-          "access-control-allow-headers": "content-type, x-parimit-actor, x-parimit-role",
+          "access-control-allow-headers":
+            "authorization, content-type, x-parimit-actor, x-parimit-role",
         });
         response.end();
         return;
@@ -150,13 +231,29 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
         return;
       }
 
+      if (method === "GET" && pathname === "/v1/identity") {
+        const actor = await authenticate(request);
+        sendJson(response, 200, {
+          data: {
+            actor_id: actor.actorId,
+            actor_role: actor.actorRole,
+            authentication_method: actor.authenticationMethod,
+            ...(actor.issuer === undefined ? {} : { issuer: actor.issuer }),
+          },
+          ...demoWarning(actor),
+        });
+        return;
+      }
+
       if (pathname === "/v1/intents" && method === "POST") {
-        const intent = service.createIntent(await readJson(request));
+        const actor = await authenticate(request);
+        const intent = service.createIntent(authenticatedProposal(await readJson(request), actor));
         sendJson(response, intent.idempotent_replay ? 200 : 201, { data: intent });
         return;
       }
 
       if (pathname === "/v1/intents" && method === "GET") {
+        const actor = await authenticate(request);
         const rawStatus = url.searchParams.get("status");
         let status: IntentStatus | undefined;
         if (rawStatus !== null) {
@@ -178,8 +275,15 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
             400,
           );
         }
+        if (actor.actorRole === "agent" && agentId !== null && agentId !== actor.actorId) {
+          throw new ParimitError("FORBIDDEN", "Agents may list only their own proposals", 403);
+        }
         const intents = service.listIntents({
-          ...(agentId === null ? {} : { agentId }),
+          ...(actor.actorRole === "agent"
+            ? { agentId: actor.actorId }
+            : agentId === null
+              ? {}
+              : { agentId }),
           ...(status ? { status } : {}),
           ...(limit ? { limit } : {}),
         });
@@ -188,9 +292,12 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
       }
 
       if (pathname === "/v1/intents/simulate" && method === "POST") {
+        const actor = await authenticate(request);
         sendJson(response, 200, {
           data: {
-            policy: service.evaluatePolicy(await readJson(request)),
+            policy: service.evaluatePolicy(
+              authenticatedProposal(await readJson(request), actor),
+            ),
             persisted: false,
             moves_money: false,
           },
@@ -200,11 +307,14 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
 
       const demoObservation = pathname.match(/^\/v1\/demo\/intents\/([^/]+)\/observations$/);
       if (demoObservation && method === "POST") {
+        const actor = await authenticate(request);
+        requireRole(actor, ["admin"]);
         const record = requireJsonObject(await readJson(request), ["status", "provider_reference"]);
         const intent = service.recordMockObservation(
           decodePathSegment(demoObservation[1]!),
           record.status,
           record.provider_reference,
+          actor.actorId,
         );
         sendJson(response, 200, {
           data: intent,
@@ -215,17 +325,21 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
 
       const intentPath = parseIntentPath(pathname);
       if (intentPath && method === "GET" && intentPath.action === undefined) {
-        sendJson(response, 200, { data: service.getIntent(intentPath.id) });
+        const actor = await authenticate(request);
+        authorizeIntentRead(actor, intentPath.id);
+        const intent = service.getIntent(intentPath.id);
+        sendJson(response, 200, { data: intent });
         return;
       }
       if (intentPath && method === "POST" && intentPath.action === "cancel") {
-        const actor = requireDemoActor(request);
+        const actor = await authenticate(request);
         const intent = service.cancelIntent(intentPath.id, actor.actorId, actor.actorRole);
-        sendJson(response, 200, { data: intent, warning: DEMO_AUTH_WARNING });
+        sendJson(response, 200, { data: intent, ...demoWarning(actor) });
         return;
       }
       if (intentPath && method === "POST" && intentPath.action === "approvals") {
-        const actor = requireDemoActor(request);
+        const actor = await authenticate(request);
+        requireRole(actor, ["approver", "admin"]);
         const body = requireJsonObject(await readJson(request), ["decision"]);
         const intent = service.approveIntent(
           intentPath.id,
@@ -233,14 +347,18 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
           actor.actorRole,
           body.decision,
         );
-        sendJson(response, 200, { data: intent, warning: DEMO_AUTH_WARNING });
+        sendJson(response, 200, { data: intent, ...demoWarning(actor) });
         return;
       }
       if (intentPath && method === "GET" && intentPath.action === "audit") {
+        const actor = await authenticate(request);
+        authorizeIntentRead(actor, intentPath.id);
         sendJson(response, 200, { data: service.getAudit(intentPath.id) });
         return;
       }
       if (intentPath && method === "GET" && intentPath.action === "audit/verify") {
+        const actor = await authenticate(request);
+        authorizeIntentRead(actor, intentPath.id);
         sendJson(response, 200, { data: service.verifyIntegrity(intentPath.id) });
         return;
       }
