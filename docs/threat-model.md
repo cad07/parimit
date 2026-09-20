@@ -5,14 +5,16 @@
 This threat model covers the alpha.3 application: proposal-safe REST and MCP
 interfaces, OIDC verification at the REST edge, deterministic policy, human
 decisions, signed evidence envelopes, one-time local consumption, local
-persistence, audit chaining, the local dashboard, and the mock simulator.
+persistence, audit chaining, the local dashboard, the mock simulator, and the
+optional loopback-only Keycloak OIDC pilot profile.
 
 The agent, prompts, tool arguments, browser input, imported context, and all
 network clients are untrusted. A human approver may make mistakes or have a
 compromised session. The host, process memory, and local administrator are not
 assumed secure against a fully privileged attacker. Real payment providers and
 payment execution are out of scope because the shipped application has no such
-connection.
+connection. The local Keycloak profile neither uses nor implies an NPCI, bank
+or PSP interface, approval, certification or endorsement.
 
 ## Assets
 
@@ -22,6 +24,7 @@ connection.
 - Idempotency and state-machine correctness.
 - Approval receipt and audit-chain integrity.
 - Envelope signing keys, audience/tenant binding, expiry and replay state.
+- Local-pilot OIDC issuer integrity, TLS CA and human/workload role separation.
 - Availability of the approval and reconciliation workflow.
 - Any local personal or commercial data entered into a proposal.
 
@@ -47,7 +50,12 @@ connection.
 | Cross-site request forgery | Browser is tricked into approval | Hosted pilot is API/SDK only; any future browser OIDC flow requires audited CSRF/state/nonce controls |
 | Cross-site scripting | Purpose text contains markup | Contextual output escaping and restrictive CSP |
 | Secret leakage | Receipt or signing key appears in logs or repository | Secret manager and redaction; stop and replace the pilot database if the alpha.3 receipt key is compromised; rotate envelope signing keys independently |
-| Supply-chain compromise | Dependency install runs malicious code | Zero runtime dependencies initially; pinned CI actions |
+| Local IdP impersonation | A fake loopback service supplies tokens or signing keys | HTTPS issuer and JWKS, profile-scoped generated CA, exact issuer/audience validation, and no plaintext fallback |
+| Role-claim confusion | Default realm roles or several Parimit roles reach one token | Dedicated top-level access-token claim, exact four-value mapping, and fail-closed ambiguous-role rejection |
+| Machine approval | A CI or workload credential is used as the reviewer | Service accounts only for agent and consumer; reviewer/admin use interactive device authorization; CI never authenticates as either human role or records a decision |
+| Local container exposure | Keycloak, Parimit or their administration surface becomes reachable from another host | Fixed host-loopback port bindings; no tunnel, wildcard publish, host network, privileged mode or Docker socket |
+| Bootstrap or realm-secret disclosure | Realm export or repository history contains a password, private key or client secret | Minimal declarative realm, runtime-only generation in ignored files, static configuration tests and secret scanning |
+| Supply-chain compromise | Dependency install or mutable container tag runs malicious code | Zero runtime dependencies initially; pinned CI actions; Keycloak image pinned by version and digest |
 
 ## Abuse cases the intended deployment boundary must prevent
 
@@ -67,6 +75,16 @@ connection.
 - OIDC verifies a token, not the real-world judgment or device security of its
   holder. The pilot depends on short-lived tokens, non-overlapping role groups,
   and identity-provider lifecycle controls.
+- The optional Keycloak profile proves local OIDC composition only. Its
+  generated CA, loopback HTTPS service, local TOTP users and single-host
+  container runtime do not represent an organization's production identity or
+  transport controls.
+- An automated agent/consumer workload smoke test cannot prove human review.
+  Acceptance still requires a reviewer to authenticate interactively and inspect
+  the exact immutable proposal; dual control requires a second human subject.
+- A privileged local administrator can read process memory, runtime secret files,
+  the Keycloak store and the Parimit database. The local profile does not defend
+  against a fully compromised workstation.
 - Local demo headers remain spoofable. Their mode is restricted to loopback or
   an explicit container exception whose host port must remain loopback-only;
   they must never be used for a shared deployment.
@@ -119,5 +137,12 @@ separate security review.
 - Test every envelope claim for signature tamper, wrong issuer/audience/tenant,
   exact-boundary expiry, replay, restart persistence and key rotation.
 - Run the boundary scanner, secret scanner, CodeQL, and dependency review.
+- Run the Keycloak profile's static configuration contract: immutable image
+  digest, loopback-only ports, TLS/CA wiring, OIDC/non-demo mode, restricted
+  container privileges, exact claim/audience mapping, disabled direct grants,
+  role separation and absence of tracked runtime secrets.
+- Keep automated workload smoke results separate from the signed-off interactive
+  human acceptance record. Verify two distinct reviewers for the dual-control
+  scenario.
 - Review logs and errors for proposal data and secret disclosure.
 - Revisit this model whenever authority, identity, storage, or adapters change.

@@ -36,6 +36,16 @@ and transaction contract to guide a future adapter, but it does not include a
 driver, repository implementation, runtime switch, or live parity suite. See
 [`../db/postgres/README.md`](../db/postgres/README.md).
 
+For a self-contained local rehearsal of the OIDC boundary, use the
+TLS-enabled [Keycloak pilot profile](../deploy/keycloak/README.md). Its
+automated workload smoke proves only machine authentication and negative
+authorization checks. The pilot is not accepted until the distinct reviewer
+and admin identities complete their device flows, inspect the immutable
+fictional proposal, explicitly confirm their decisions, and the interactive
+runner records a redacted passing report. An organizational dual-control pilot
+must assign those identities to different people; the runner can verify
+distinct OIDC subjects, not physical identity.
+
 ## What the pilot should learn
 
 The pilot should answer five questions:

@@ -7,6 +7,26 @@ release.
 
 ## [Unreleased]
 
+### Added
+
+- Added a local-only, TLS-enabled Keycloak pilot profile with a pinned identity
+  provider image, explicit client-role and audience mapping, separate human and
+  workload identities, generated non-committed secrets, a machine-only smoke
+  path, and an interactive dual-identity acceptance runner.
+- Added static and hosted-container checks for the Keycloak profile. Automated
+  checks deliberately stop before human approval and cannot be reported as
+  interactive pilot acceptance.
+
+### Security
+
+- Pinned both the Keycloak and Node container images by immutable digest and
+  excluded all generated pilot credentials and runtime evidence from the
+  Docker build context.
+- Bound pilot tokens to their exact authorized client and bound human device
+  tokens to the expected reviewer or admin username before any decision.
+- Restricted redacted acceptance reports to the ignored pilot reports
+  directory and made report persistence mandatory for a passing run.
+
 ## [0.1.0-alpha.3] - 2026-09-20
 
 ### Added

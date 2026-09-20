@@ -100,6 +100,28 @@ For a containerized demo:
 docker compose up --build
 ```
 
+## Controlled local OIDC pilot
+
+The repository also includes a local-only Keycloak profile for exercising the
+real OIDC boundary over TLS. It keeps the machine `agent` and `consumer`
+identities separate from two interactive human accounts and does not enable a
+password grant, payment connector, or execution route.
+
+With Docker Compose and OpenSSL available, generate a fresh ignored recovery
+set and run the controlled acceptance flow:
+
+```sh
+npm run pilot:keycloak:bootstrap
+npm run pilot:keycloak:accept
+```
+
+The acceptance runner requires a person to complete the reviewer and admin
+device logins and to confirm each exact fictional proposal before a decision.
+For CI or connectivity diagnostics, `npm run pilot:keycloak:smoke` exercises
+workload authentication only; it never approves a proposal and is not human
+acceptance. See [`deploy/keycloak/README.md`](deploy/keycloak/README.md) before
+running or resetting the profile.
+
 ## Configuration
 
 The server reads configuration from exported environment variables. The Node
@@ -226,11 +248,13 @@ The repository enforces part of this boundary with
 - [Safe demo](docs/demo.md)
 - [OIDC identity and role mapping](docs/identity.md)
 - [Single-tenant pilot guide](docs/pilot-guide.md)
+- [Local Keycloak OIDC pilot](deploy/keycloak/README.md)
 - [Adapter guide](docs/adapter-guide.md)
 - [PostgreSQL integration track](db/postgres/README.md)
 - [Requirements for a real payment integration](docs/real-integration-requirements.md)
 - [Decision record: proposal-only](docs/decisions/0001-proposal-only.md)
 - [Decision record: signed evidence envelopes](docs/decisions/0002-evidence-envelope.md)
+- [Decision record: local Keycloak pilot](docs/decisions/0003-keycloak-local-pilot.md)
 
 ## Relationship to NPCI AiNxt OS
 

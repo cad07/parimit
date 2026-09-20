@@ -9,6 +9,12 @@ It is not a production topology. It has no PostgreSQL runtime, multi-tenancy,
 high availability, payment connector, background reconciliation, or bundled
 monitoring system.
 
+For a self-contained local rehearsal with a pinned Keycloak identity provider,
+generated TLS, separate workload and human identities, and an interactive
+acceptance runner, use the dedicated
+[`keycloak` profile](keycloak/README.md). That profile remains local-only and
+does not replace this operator-managed external-pilot topology.
+
 ## Prerequisites
 
 - a dedicated host with Docker Engine and Docker Compose v2;
