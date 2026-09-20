@@ -1,25 +1,34 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
-function canonicalize(value: unknown): unknown {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+function canonicalize(value: unknown): string {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return JSON.stringify(value);
+  }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) throw new TypeError("Canonical JSON cannot contain non-finite numbers");
-    return value;
+    return JSON.stringify(value);
   }
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (typeof value === "object") {
-    const result: Record<string, unknown> = {};
-    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-      const item = (value as Record<string, unknown>)[key];
-      if (item !== undefined) result[key] = canonicalize(item);
+  if (Array.isArray(value)) {
+    const items: string[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      if (!(index in value)) throw new TypeError("Canonical JSON cannot contain sparse arrays");
+      items.push(canonicalize(value[index]));
     }
-    return result;
+    return `[${items.join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .filter((key) => record[key] !== undefined)
+      .map((key) => `${JSON.stringify(key)}:${canonicalize(record[key])}`)
+      .join(",")}}`;
   }
   throw new TypeError(`Unsupported canonical JSON value: ${typeof value}`);
 }
 
 export function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalize(value));
+  return canonicalize(value);
 }
 
 export function sha256(value: string): string {

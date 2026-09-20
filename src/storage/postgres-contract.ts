@@ -88,20 +88,21 @@ export async function withConsistentReadTransaction<T>(
  */
 export async function lockPolicySubject(
   transaction: PostgresTransactionClient,
+  tenantId: string,
   agentId: string,
 ): Promise<void> {
   await transaction.query(
-    `INSERT INTO parimit.policy_subjects (agent_id)
-     VALUES ($1)
-     ON CONFLICT (agent_id) DO NOTHING`,
-    [agentId],
+    `INSERT INTO parimit.policy_subjects (tenant_id, agent_id)
+     VALUES ($1, $2)
+     ON CONFLICT (tenant_id, agent_id) DO NOTHING`,
+    [tenantId, agentId],
   );
-  const result = await transaction.query<{ agent_id: string }>(
-    `SELECT agent_id
+  const result = await transaction.query<{ tenant_id: string; agent_id: string }>(
+    `SELECT tenant_id, agent_id
        FROM parimit.policy_subjects
-      WHERE agent_id = $1
+      WHERE tenant_id = $1 AND agent_id = $2
       FOR UPDATE`,
-    [agentId],
+    [tenantId, agentId],
   );
   if (result.rowCount !== 1 || result.rows.length !== 1) {
     throw new PostgresContractError(
@@ -114,14 +115,15 @@ export async function lockPolicySubject(
 /** Lock before integrity verification and every state-affecting mutation. */
 export async function lockIntentForMutation(
   transaction: PostgresTransactionClient,
+  tenantId: string,
   intentId: string,
 ): Promise<boolean> {
   const result = await transaction.query<{ id: string }>(
     `SELECT id
-       FROM parimit.intents
-      WHERE id = $1::uuid
+      FROM parimit.intents
+      WHERE tenant_id = $1 AND id = $2::uuid
       FOR UPDATE`,
-    [intentId],
+    [tenantId, intentId],
   );
   if (result.rowCount === 0 && result.rows.length === 0) return false;
   if (result.rowCount !== 1 || result.rows.length !== 1) {
@@ -134,6 +136,7 @@ export async function lockIntentForMutation(
 }
 
 export interface PostgresAuditAppendInput {
+  tenantId: string;
   intentId: string;
   eventType: string;
   actorId: string;
@@ -156,7 +159,7 @@ export async function appendAuditEvent(
   transaction: PostgresTransactionClient,
   input: PostgresAuditAppendInput,
 ): Promise<PostgresAuditAppendResult> {
-  if (!(await lockIntentForMutation(transaction, input.intentId))) {
+  if (!(await lockIntentForMutation(transaction, input.tenantId, input.intentId))) {
     throw new PostgresContractError("INTENT_NOT_FOUND", "Payment proposal not found");
   }
 

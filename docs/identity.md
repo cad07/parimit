@@ -27,25 +27,65 @@ Use these environment variables for the external pilot:
 | `PARIMIT_OIDC_AUDIENCE` | yes | Audience that must appear in `aud` |
 | `PARIMIT_OIDC_JWKS_URI` | yes | HTTPS URL for the issuer's signing keys |
 | `PARIMIT_OIDC_ROLE_CLAIM` | no | Exact top-level role claim; default `roles` |
-| `PARIMIT_OIDC_ROLE_MAPPING` | yes | Non-empty JSON object mapping dedicated provider values to `agent`, `approver`, or `admin` |
+| `PARIMIT_OIDC_ROLE_MAPPING` | yes | Non-empty JSON object mapping dedicated provider values to `agent`, `approver`, `consumer`, or `admin` |
 | `PARIMIT_OIDC_CLOCK_SKEW_SECONDS` | no | Clock tolerance from 0 to 300 seconds; default 60 |
 | `PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS` | no | Maximum `exp - iat`; default 3,600 seconds and makes `iat` mandatory |
 | `PARIMIT_OIDC_REQUIRED_TYP` | no | Optional exact JOSE `typ`, `at+jwt` or `JWT`, when guaranteed by the provider |
 
 The environment-created provider accepts RS256 by default. The underlying
 library also supports explicitly allowlisted PS256 and ES256 for custom
-embedding, but the alpha.2 server has no environment setting to change the
+embedding, but the alpha.3 server has no environment setting to change the
 algorithm allowlist. Do not infer an algorithm from the token header.
 
 Example mapping:
 
 ```text
 PARIMIT_OIDC_ROLE_CLAIM=roles
-PARIMIT_OIDC_ROLE_MAPPING={"parimit-pilot-agent":"agent","parimit-pilot-reviewer":"approver","parimit-pilot-admin":"admin"}
+PARIMIT_OIDC_ROLE_MAPPING={"parimit-pilot-agent":"agent","parimit-pilot-reviewer":"approver","parimit-pilot-consumer":"consumer","parimit-pilot-admin":"admin"}
 ```
 
 Quote or escape the JSON as required by the deployment system. The reference
 Compose file reads it as one string.
+
+## Identity trust-domain identifier
+
+After validating the OIDC configuration, Parimit computes a non-secret
+`sha256:<64 lowercase hex>` trust-domain identifier over canonical configuration
+with this exact preimage shape:
+
+```json
+{
+  "version": "parimit-oidc-identity-trust-v1",
+  "issuer": "<exact issuer>",
+  "audiences": ["<sorted API audiences>"],
+  "jwks_uri": "<exact JWKS URI>",
+  "role_claim": "<exact claim name>",
+  "role_mapping": { "<external value>": "<Parimit role>" },
+  "allowed_algorithms": ["<sorted algorithm names>"],
+  "required_token_type": "at+jwt",
+  "clock_skew_seconds": 60,
+  "max_token_lifetime_seconds": 3600
+}
+```
+
+`required_token_type` is exactly `"JWT"`, `"at+jwt"`, or JSON `null`; maximum
+token lifetime may likewise be an integer or `null`. Arrays are sorted by
+ECMAScript UTF-16 code-unit order before canonicalization, and object keys
+follow `parimit-canonical-json-v1`. The published
+[configuration digest vector](../test-vectors/configuration-digests-v1.json)
+fixes the exact canonical text and expected digest. The HTTP server refuses to
+pair a service with an identity provider whose identifier differs. The same
+identifier is bound into the database receipt root and every signed
+authorization envelope.
+
+Changing the issuer, API audience, JWKS endpoint, role authority, accepted
+algorithm or token-time rules therefore cannot silently reuse earlier approval
+evidence. Alpha.3 requires a fresh database/trust setup for such a change. A
+relying party must pin the expected identifier during onboarding and compare it
+with signed `identity_assurance.trust_domain_id`; checking only
+`authentication_method: oidc` is insufficient. Local demo headers use the fixed
+lower-assurance identifier
+`urn:parimit:identity-trust:local-demo-headers-v1`.
 
 ## Required token claims
 
@@ -93,18 +133,22 @@ rejects a proposal or simulation that names a different requester.
 
 ## Route policy
 
-`GET /v1/safety` and preflight `OPTIONS` are the only unauthenticated API
-operations. Every other `/v1` route requires a valid bearer token in OIDC
-mode.
+`GET /v1/safety`, `GET /.well-known/jwks.json`, and preflight `OPTIONS` are the
+only unauthenticated operations. Every `/v1` identity, proposal, review,
+verification, consumption, audit, and mock route requires a valid bearer token
+in OIDC mode.
 
-| Operation | `agent` | `approver` | `admin` |
-| --- | ---: | ---: | ---: |
-| Read own identity | yes | yes | yes |
-| Simulate/create as self | yes | no | no |
-| List/read own proposals and evidence | yes | yes, all | yes, all |
-| Cancel | own eligible proposal | no | eligible proposal |
-| Approve/reject | no | yes | yes |
-| Record a demo mock observation | no | no | yes |
+| Operation | `agent` | `approver` | `consumer` | `admin` |
+| --- | ---: | ---: | ---: | ---: |
+| Read own identity | yes | yes | yes | yes |
+| Simulate/create as self | yes | no | no | no |
+| List/read proposals and audit | own only | all | no | all |
+| Cancel | own eligible proposal | no | no | eligible proposal |
+| Approve/reject | no | yes | no | yes |
+| Issue evidence envelope | no | yes | no | yes |
+| Verify evidence envelope | no | yes | yes | yes |
+| Consume evidence envelope once | no | no | yes | yes |
+| Record a demo mock observation | no | no | no | yes |
 
 Approver and admin decisions remain subject to the domain rules: the original
 requester cannot approve its own proposal, duplicate reviewers do not satisfy
@@ -120,7 +164,7 @@ OIDC client ID or ID-token audience. This exact audience is the mandatory
 access-token discriminator. If the provider reliably emits `typ=at+jwt` (or
 `typ=JWT` only for access tokens), configure `PARIMIT_OIDC_REQUIRED_TYP` as an
 additional check. Use short-lived access tokens intended for that audience;
-do not send ID tokens. Create three
+do not send ID tokens. Create four
 non-overlapping provider roles or groups and map each to one Parimit role.
 
 For human reviewer and admin accounts:
@@ -131,7 +175,12 @@ For human reviewer and admin accounts:
 - define joiner, mover, leaver, and emergency-revocation procedures; and
 - review group membership before the pilot and at its end.
 
-For agent clients, use a dedicated workload identity with only the agent role.
+For agent and relying-party clients, use distinct workload identities with
+only the `agent` or `consumer` role respectively.
+Alpha.3 permits exactly one envelope audience per deployment, so every
+identity mapped to `consumer` must belong to that one relying-party trust
+domain. Supporting several relying parties requires a future verified
+client-claim-to-audience mapping; do not work around this by sharing the role.
 Do not place its credential in prompts, source code, container images, logs, or
 the browser. The SDK accepts an access token at runtime but does not acquire or
 refresh one.
@@ -165,7 +214,8 @@ temporarily enable demo headers.
 
 ## Known limits
 
-The alpha has no tenant claim or tenant-aware row boundary, no token
+The alpha binds one configured tenant into v3 rows and envelopes, but it has no
+multi-tenant request routing or tenant claim, no token
 revocation lookup, no end-user session manager, no native step-up challenge,
 no browser login, and no provisioning protocol. It relies on token expiry,
 identity-provider controls, and a single-tenant deployment. Those limitations

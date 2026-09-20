@@ -1,4 +1,4 @@
-export type ActorRole = "agent" | "approver" | "admin";
+export type ActorRole = "agent" | "approver" | "consumer" | "admin";
 export type ApprovalDecision = "APPROVE" | "REJECT";
 export type IntentStatus =
   | "POLICY_DENIED"
@@ -30,6 +30,7 @@ export interface PolicyDecision {
   allowed: boolean;
   reasons: string[];
   rules_version: string;
+  config_digest: string;
   required_approvals: 1 | 2;
   current_daily_exposure_minor: string;
   projected_daily_exposure_minor: string;
@@ -65,6 +66,8 @@ export interface ApprovalReceipt {
 export interface Intent {
   id: string;
   intent_version: string;
+  tenant_id: string;
+  state_version: number;
   initial_status: "POLICY_DENIED" | "AWAITING_APPROVAL";
   idempotency_key: string;
   requested_by: { type: "agent"; id: string };
@@ -75,7 +78,9 @@ export interface Intent {
   status: IntentStatus;
   required_approvals: 1 | 2;
   approval_count: number;
-  policy: Pick<PolicyDecision, "allowed" | "reasons" | "rules_version">;
+  policy: Pick<PolicyDecision, "allowed" | "reasons" | "rules_version"> & {
+    config_digest?: string;
+  };
   intent_hash: string;
   created_at: string;
   expires_at: string;
@@ -83,6 +88,132 @@ export interface Intent {
   approvals: Approval[];
   receipt?: ApprovalReceipt;
   idempotent_replay?: boolean;
+}
+
+export interface AuthorizationEnvelopeApproval {
+  subject: string;
+  role: "approver" | "admin";
+  decision: "APPROVE";
+  intent_hash: string;
+  decided_at: string;
+  record_digest: string;
+}
+
+export interface Sha256Digest {
+  alg: "sha-256";
+  value: string;
+}
+
+export interface AuthorizationEnvelopeClaims {
+  version: "parimit-authorization-envelope-v1";
+  iss: string;
+  sub: string;
+  aud: string;
+  jti: string;
+  iat: number;
+  nbf: number;
+  exp: number;
+  issued_at: string;
+  tenant_id: string;
+  identity_assurance: {
+    authentication_method: "oidc" | "local_demo_headers";
+    cryptographically_verified: boolean;
+    trust_domain_id: string;
+  };
+  intent: {
+    snapshot: {
+      version: "parimit-payment-intent-v3";
+      id: string;
+      tenant_id: string;
+      idempotency_key: string;
+      requested_by: { type: "agent"; id: string };
+      on_behalf_of: string | null;
+      amount: { currency: "INR"; minor: string };
+      payee_reference: string;
+      purpose: string;
+      initial_status: "AWAITING_APPROVAL";
+      policy: {
+        allowed: true;
+        reasons: string[];
+        rules_version: string;
+        config_digest: string;
+        required_approvals: 1 | 2;
+      };
+      created_at: string;
+      expires_at: string;
+    };
+    digest: Sha256Digest;
+  };
+  policy_digest: Sha256Digest;
+  decision: {
+    state: "AUTHORIZED_NO_DISPATCH";
+    authorization_state_version: number;
+    required_approvals: 1 | 2;
+    fully_approved_at: string;
+    approval_set_digest: Sha256Digest;
+    approvals: AuthorizationEnvelopeApproval[];
+  };
+  replay: {
+    nonce: string;
+    use_limit: 1;
+  };
+  source_audit: {
+    event_count: number;
+    chain_tip: string;
+  };
+  capability: {
+    kind: "EVIDENCE_ONLY";
+    payment_dispatch_authorized: false;
+    execution_authorized: false;
+    provider_instruction: false;
+    moves_money: false;
+  };
+  notice: string;
+}
+
+export interface AuthorizationEnvelope {
+  compact_jws: string;
+  claims: AuthorizationEnvelopeClaims;
+  signature: {
+    algorithm: "EdDSA";
+    key_id: string;
+    jwks_uri: "/.well-known/jwks.json";
+  };
+  consumption: {
+    state: "UNCONSUMED" | "CONSUMED";
+    consumed_at?: string;
+    consumed_by?: string;
+  };
+  execution_authorized: false;
+  moves_money: false;
+  notice: string;
+  idempotent_replay?: boolean;
+}
+
+export interface AuthorizationEnvelopeVerification {
+  valid: boolean;
+  signature_valid: boolean;
+  claims_valid: boolean;
+  time_valid: boolean;
+  locally_issued: boolean;
+  intent_binding_valid: boolean;
+  consumption: AuthorizationEnvelope["consumption"] | null;
+  failures: string[];
+  claims?: AuthorizationEnvelope["claims"];
+}
+
+export interface EnvelopePublicJwk {
+  kty: "OKP";
+  crv: "Ed25519";
+  x: string;
+  use: "sig";
+  key_ops: ["verify"];
+  alg: "EdDSA";
+  kid: string;
+}
+
+export interface EnvelopeJwks {
+  keys: EnvelopePublicJwk[];
 }
 
 export interface IntegrityReport {
@@ -167,6 +298,7 @@ function createTransport(options: ClientOptions) {
   return async function request<T>(
     path: string,
     init: RequestInit = {},
+    responseShape: "data" | "raw" = "data",
   ): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -197,7 +329,9 @@ function createTransport(options: ClientOptions) {
           payload.error?.details,
         );
       }
-      return (payload as Envelope<T>).data;
+      return responseShape === "raw"
+        ? (payload as unknown as T)
+        : (payload as Envelope<T>).data;
     } finally {
       clearTimeout(timeout);
     }
@@ -224,6 +358,8 @@ function readMethods(request: ReturnType<typeof createTransport>) {
     },
     getAudit: (id: string) => request<AuditEvent[]>(intentPath(id, "/audit")),
     verifyAudit: (id: string) => request<IntegrityReport>(intentPath(id, "/audit/verify")),
+    getEnvelopeKeys: () =>
+      request<EnvelopeJwks>("/.well-known/jwks.json", {}, "raw"),
   };
 }
 
@@ -254,6 +390,46 @@ export function createReviewerClient(options: ClientOptions) {
     ...readMethods(request),
     approveProposal: (id: string) => decide(id, "APPROVE"),
     rejectProposal: (id: string) => decide(id, "REJECT"),
+    issueEvidenceEnvelope: (
+      id: string,
+      input: { audience: string; idempotency_key: string; expires_in_seconds?: number },
+    ) =>
+      request<AuthorizationEnvelope>(intentPath(id, "/evidence-envelopes"), {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    verifyEvidenceEnvelope: (compactJws: string, audience: string) =>
+      request<AuthorizationEnvelopeVerification>("/v1/evidence-envelopes/verify", {
+        method: "POST",
+        body: JSON.stringify({ compact_jws: compactJws, audience }),
+      }),
+  });
+}
+
+export function createEnvelopeConsumerClient(options: ClientOptions) {
+  const request = createTransport(options);
+  return Object.freeze({
+    identity: () => request<IdentityInfo>("/v1/identity"),
+    getEnvelopeKeys: () =>
+      request<EnvelopeJwks>("/.well-known/jwks.json", {}, "raw"),
+    verifyEvidenceEnvelope: (compactJws: string, audience: string) =>
+      request<AuthorizationEnvelopeVerification>("/v1/evidence-envelopes/verify", {
+        method: "POST",
+        body: JSON.stringify({ compact_jws: compactJws, audience }),
+      }),
+    consumeEvidenceEnvelope: (
+      compactJws: string,
+      audience: string,
+      idempotencyKey: string,
+    ) =>
+      request<AuthorizationEnvelope>("/v1/evidence-envelopes/consume", {
+        method: "POST",
+        body: JSON.stringify({
+          compact_jws: compactJws,
+          audience,
+          idempotency_key: idempotencyKey,
+        }),
+      }),
   });
 }
 
@@ -261,6 +437,14 @@ export function createOperatorClient(options: ClientOptions) {
   const request = createTransport(options);
   return Object.freeze({
     ...readMethods(request),
+    issueEvidenceEnvelope: (
+      id: string,
+      input: { audience: string; idempotency_key: string; expires_in_seconds?: number },
+    ) =>
+      request<AuthorizationEnvelope>(intentPath(id, "/evidence-envelopes"), {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
     recordMockObservation: (
       id: string,
       status: ObservationStatus,
@@ -273,6 +457,24 @@ export function createOperatorClient(options: ClientOptions) {
           ...(providerReference === undefined
             ? {}
             : { provider_reference: providerReference }),
+        }),
+      }),
+    verifyEvidenceEnvelope: (compactJws: string, audience: string) =>
+      request<AuthorizationEnvelopeVerification>("/v1/evidence-envelopes/verify", {
+        method: "POST",
+        body: JSON.stringify({ compact_jws: compactJws, audience }),
+      }),
+    consumeEvidenceEnvelope: (
+      compactJws: string,
+      audience: string,
+      idempotencyKey: string,
+    ) =>
+      request<AuthorizationEnvelope>("/v1/evidence-envelopes/consume", {
+        method: "POST",
+        body: JSON.stringify({
+          compact_jws: compactJws,
+          audience,
+          idempotency_key: idempotencyKey,
         }),
       }),
   });

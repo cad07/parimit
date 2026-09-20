@@ -6,6 +6,10 @@ import {
 } from "node:crypto";
 
 import { ParimitError } from "./errors.ts";
+import {
+  LOCAL_DEMO_IDENTITY_TRUST_DOMAIN,
+  oidcIdentityTrustDomainId,
+} from "./identity-trust.ts";
 import type { ActorRole } from "./types.ts";
 
 const DEFAULT_CLOCK_SKEW_SECONDS = 60;
@@ -34,6 +38,7 @@ export type AuthenticationHeaders = Readonly<
 
 export interface IdentityProvider {
   readonly authenticationMethod: AuthenticatedActor["authenticationMethod"];
+  readonly identityTrustDomainId: string;
   authenticate(headers: AuthenticationHeaders): Promise<AuthenticatedActor>;
 }
 
@@ -43,7 +48,7 @@ export interface OidcIdentityProviderOptions {
   jwksUri: string;
   /** Exact top-level claim name. Dots and URL-shaped claim names are not expanded. */
   roleClaim?: string;
-  /** Maps identity-provider role values onto Parimit's three deliberately small roles. */
+  /** Maps identity-provider role values onto Parimit's deliberately small roles. */
   roleMapping?: Readonly<Record<string, ActorRole>>;
   allowedAlgorithms?: readonly JwtAlgorithm[];
   /** Optional JOSE `typ` discriminator when the provider guarantees one for access tokens. */
@@ -319,6 +324,7 @@ function stableActorId(issuer: string, subject: string): string {
 
 export class OidcIdentityProvider implements IdentityProvider {
   readonly authenticationMethod = "oidc" as const;
+  readonly identityTrustDomainId: string;
   private readonly issuer: string;
   private readonly audiences: ReadonlySet<string>;
   private readonly jwksUri: string;
@@ -357,9 +363,10 @@ export class OidcIdentityProvider implements IdentityProvider {
     const configuredRoleMapping = options.roleMapping ?? {
       agent: "agent",
       approver: "approver",
+      consumer: "consumer",
       admin: "admin",
     };
-    const validRoles = new Set<ActorRole>(["agent", "approver", "admin"]);
+    const validRoles = new Set<ActorRole>(["agent", "approver", "consumer", "admin"]);
     if (
       Object.keys(configuredRoleMapping).length === 0 ||
       Object.entries(configuredRoleMapping).some(
@@ -426,6 +433,17 @@ export class OidcIdentityProvider implements IdentityProvider {
       throw configurationError("A Fetch API implementation is required for JWKS retrieval");
     }
     this.clock = options.clock ?? (() => new Date());
+    this.identityTrustDomainId = oidcIdentityTrustDomainId({
+      issuer: this.issuer,
+      audiences: [...this.audiences],
+      jwksUri: this.jwksUri,
+      roleClaim: this.roleClaim,
+      roleMapping: this.roleMapping,
+      allowedAlgorithms: [...this.allowedAlgorithms],
+      requiredTokenType: this.requiredTokenType ?? null,
+      clockSkewSeconds: this.clockSkewSeconds,
+      maxTokenLifetimeSeconds: this.maxTokenLifetimeSeconds ?? null,
+    });
   }
 
   async authenticate(headers: AuthenticationHeaders): Promise<AuthenticatedActor> {
@@ -628,6 +646,7 @@ export interface LocalDemoHeaderIdentityProviderOptions {
  */
 export class LocalDemoHeaderIdentityProvider implements IdentityProvider {
   readonly authenticationMethod = "local_demo_headers" as const;
+  readonly identityTrustDomainId = LOCAL_DEMO_IDENTITY_TRUST_DOMAIN;
 
   constructor(options: LocalDemoHeaderIdentityProviderOptions) {
     if (
@@ -658,7 +677,12 @@ export class LocalDemoHeaderIdentityProvider implements IdentityProvider {
       throw new ParimitError("INVALID_DEMO_IDENTITY", "Demo actor identifier is invalid", 401);
     }
     const actorRole = rawRole.toLocaleLowerCase("en-US") as ActorRole;
-    if (actorRole !== "agent" && actorRole !== "approver" && actorRole !== "admin") {
+    if (
+      actorRole !== "agent" &&
+      actorRole !== "approver" &&
+      actorRole !== "consumer" &&
+      actorRole !== "admin"
+    ) {
       throw new ParimitError("INVALID_DEMO_IDENTITY", "Demo actor role is invalid", 401);
     }
     return {

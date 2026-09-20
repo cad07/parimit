@@ -230,7 +230,7 @@ export async function handleMcpRequest(
       result: {
         protocolVersion: "2025-06-18",
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "parimit", version: "0.1.0-alpha.2" },
+        serverInfo: { name: "parimit", version: "0.1.0-alpha.3" },
         instructions:
           "Proposal-only safety server. It cannot approve proposals, reach payment rails, or move money.",
       },

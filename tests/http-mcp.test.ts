@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 
-import { LocalDemoHeaderIdentityProvider } from "../src/auth.ts";
+import {
+  createIdentityProviderFromEnvironment,
+  LocalDemoHeaderIdentityProvider,
+} from "../src/auth.ts";
 import { createHttpHandler } from "../src/http.ts";
 import { callMcpTool, handleMcpRequest, MCP_TOOLS, startMcpServer } from "../src/mcp.ts";
 import { createServiceFromEnvironment, ParimitService } from "../src/service.ts";
@@ -23,8 +27,30 @@ async function json(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
 
-function demoHeaders(actor: string, role: "agent" | "approver" | "admin") {
+function demoHeaders(actor: string, role: "agent" | "approver" | "consumer" | "admin") {
   return { "x-parimit-actor": actor, "x-parimit-role": role };
+}
+
+function productionEnvelopeEnvironment(): Record<string, string> {
+  const privateKeyPem = generateKeyPairSync("ed25519").privateKey.export({
+    format: "pem",
+    type: "pkcs8",
+  }) as string;
+  return {
+    PARIMIT_TENANT_ID: "test-tenant",
+    PARIMIT_ENVELOPE_ISSUER: "urn:parimit:test:issuer",
+    PARIMIT_ENVELOPE_AUDIENCES: "urn:parimit:test:consumer",
+    PARIMIT_ENVELOPE_PRIVATE_KEY_PEM_BASE64: Buffer.from(privateKeyPem, "utf8").toString("base64"),
+    PARIMIT_OIDC_ISSUER: "https://identity.test.example/tenant",
+    PARIMIT_OIDC_AUDIENCE: "parimit-test-api",
+    PARIMIT_OIDC_JWKS_URI: "https://identity.test.example/tenant/jwks",
+    PARIMIT_OIDC_ROLE_MAPPING: JSON.stringify({
+      "pilot-agent": "agent",
+      "pilot-reviewer": "approver",
+      "pilot-consumer": "consumer",
+      "pilot-admin": "admin",
+    }),
+  };
 }
 
 function demoIdentityProvider() {
@@ -288,7 +314,7 @@ test("MCP exposes proposal/status/policy/cancel/mock/audit tools but no approval
   const initializeResult = (initialized?.result ?? {}) as Record<string, unknown>;
   assert.deepEqual(initializeResult.serverInfo, {
     name: "parimit",
-    version: "0.1.0-alpha.2",
+    version: "0.1.0-alpha.3",
   });
 });
 
@@ -303,6 +329,7 @@ test("environment config accepts canonical names and requires OIDC for non-demo 
     PARIMIT_INTENT_TTL_SECONDS: "120",
     PARIMIT_MAX_EXPIRY_SECONDS: "240",
     PARIMIT_ALLOWED_PAYEES: "",
+    PARIMIT_ENVELOPE_SIGNING_KEY_ID: "",
   });
   t.after(() => service.close());
   assert.equal(service.policy.perTransactionLimitMinor, 900);
@@ -311,6 +338,10 @@ test("environment config accepts canonical names and requires OIDC for non-demo 
   assert.equal(service.policy.defaultExpirySeconds, 120);
   assert.equal(service.policy.maxExpirySeconds, 240);
   assert.equal(service.policy.allowedPayees, null);
+  assert.match(
+    ((service.safetyMetadata().evidence_envelopes as Record<string, unknown>).key_id as string),
+    /^[A-Za-z0-9._:-]{1,128}$/,
+  );
   assert.throws(
     () => createServiceFromEnvironment({ PARIMIT_DEMO_MODE: "false", PARIMIT_DB_PATH: ":memory:" }),
     /Non-demo startup requires PARIMIT_AUTH_MODE=oidc/,
@@ -328,12 +359,16 @@ test("environment config accepts canonical names and requires OIDC for non-demo 
     );
   }
   const validTestReceiptKey = "r".repeat(32);
-  const oidcService = createServiceFromEnvironment({
+  const envelopeEnvironment = productionEnvelopeEnvironment();
+  const oidcEnvironment = {
     PARIMIT_AUTH_MODE: "oidc",
     PARIMIT_DEMO_MODE: "false",
     PARIMIT_DB_PATH: ":memory:",
     PARIMIT_RECEIPT_KEY: validTestReceiptKey,
-  });
+    ...envelopeEnvironment,
+  };
+  const oidcIdentityProvider = createIdentityProviderFromEnvironment(oidcEnvironment);
+  const oidcService = createServiceFromEnvironment(oidcEnvironment, oidcIdentityProvider);
   t.after(() => oidcService.close());
   assert.equal(oidcService.authenticationMode, "oidc");
   assert.throws(
@@ -347,6 +382,7 @@ test("environment config accepts canonical names and requires OIDC for non-demo 
         PARIMIT_DEMO_MODE: "false",
         PARIMIT_DB_PATH: ":memory:",
         PARIMIT_RECEIPT_KEY: validTestReceiptKey,
+        ...envelopeEnvironment,
       }),
     /MCP transport has no verified OIDC actor binding/,
   );

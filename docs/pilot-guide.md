@@ -1,6 +1,6 @@
 # External pilot guide
 
-This guide defines the narrow external-pilot envelope for Parimit's alpha.2
+This guide defines the narrow external-pilot envelope for Parimit's alpha.3
 track. It is an evaluation of proposal governance, not a payment pilot.
 
 > **Boundary:** Parimit does not connect to UPI, a bank, a PSP, a wallet, or
@@ -17,6 +17,8 @@ The supported pilot shape is deliberately small:
 - one Parimit application instance;
 - one persistent SQLite database on an encrypted host volume;
 - OIDC bearer-token authentication for API and SDK clients;
+- one stable Ed25519 envelope-signing key, exact issuer, and allowlisted
+  relying-party audience;
 - an HTTPS reverse proxy, rate limits, logs, and backups operated by the pilot
   host; and
 - fictional payee aliases, synthetic purposes, and test amounts only.
@@ -36,7 +38,7 @@ driver, repository implementation, runtime switch, or live parity suite. See
 
 ## What the pilot should learn
 
-The pilot should answer four questions:
+The pilot should answer five questions:
 
 1. Can an agent express a useful, deterministic proposal without receiving
    approval or payment authority?
@@ -44,6 +46,8 @@ The pilot should answer four questions:
 3. Do policy denials, idempotency, dual control, cancellation, expiry, and
    uncertainty behave predictably under the participant's workflow?
 4. Is the evidence useful to security, risk, and operations teams?
+5. Can a separate relying party verify and claim the signed evidence once,
+   without gaining proposal-browsing or payment authority?
 
 The pilot must not be used to measure payment success, latency, settlement,
 reconciliation, or provider compatibility. No such integration exists.
@@ -55,13 +59,14 @@ for each test role.
 
 | Role | Pilot responsibility | Allowed authority |
 | --- | --- | --- |
-| `agent` | Propose and inspect its own work | Simulate policy, create a proposal using its authenticated `actor_id`, read its own proposals and evidence, cancel an eligible proposal |
-| `approver` | Human review | Read proposals, approve or reject an exact proposal; cannot create for an agent or attach an observation |
-| `admin` | Pilot operation | Read, approve or reject, cancel when permitted, and attach a clearly labelled mock observation |
+| `agent` | Propose and inspect its own work | Simulate policy, create a proposal using its authenticated `actor_id`, read its own proposals and audit, cancel an eligible proposal |
+| `approver` | Human review | Read proposals, approve or reject an exact proposal, issue its signed evidence envelope, and request read-only verification; cannot consume evidence, create for an agent, or attach an observation |
+| `consumer` | Relying-party evidence acceptance | Verify an audience-bound envelope and atomically record one acceptance; cannot browse proposals, approve, issue, or attach observations |
+| `admin` | Pilot operation | Read, approve or reject, cancel when permitted, issue/verify/consume evidence, and attach a clearly labelled mock observation |
 
 An agent cannot approve, even if it submits an altered role in request data.
 Two-approval policy requires two distinct authenticated reviewer identities.
-Do not give an automated agent an `approver` or `admin` token.
+Do not give an automated agent an `approver`, `consumer`, or `admin` token.
 
 The API exposes `GET /v1/identity` so a client can discover its derived,
 non-PII `actor_id`. An agent must use that exact value as
@@ -78,10 +83,11 @@ commit and container image being deployed.
 | --- | --- |
 | Safety boundary | Repository tests and boundary scan pass; `/v1/safety` reports `PROPOSAL_ONLY`, `moves_money: false`, and no execution routes |
 | Authentication | OIDC-mode integration tests pass; missing or invalid bearer tokens fail; spoofed demo headers alone fail |
-| Authorization | Agent, approver, and admin positive and negative route tests pass, including ownership and distinct-reviewer checks |
+| Authorization | Agent, approver, consumer, and admin positive and negative route tests pass, including ownership, distinct-reviewer, issuance, and one-time-consumption checks |
+| Envelope trust | Public JWKS contains no private material; the exact issuer, tenant, single relying-party audience, OIDC trust-domain ID and policy-configuration digest are pinned; restart and historical-key verification are tested |
 | Transport | Only the HTTPS proxy is externally reachable; the Parimit upstream is bound to host loopback |
 | Storage | A fresh encrypted SQLite volume is used; restore of a stopped-instance snapshot has been rehearsed |
-| Secrets | A unique receipt key and OIDC configuration are stored outside Git; access and rotation owners are named |
+| Secrets | A unique database-bound receipt key, stable Ed25519 signing key and OIDC configuration are stored outside Git; access owners and signing-key rotation owners are named |
 | Operations | Logs, basic rate limits, uptime checks, incident contacts, maintenance window, and stop procedure are assigned |
 | Data | Written agreement limits input to fictional aliases and synthetic test data |
 
@@ -103,15 +109,31 @@ Run this sequence through the same HTTPS hostname participants will use:
    policy result, and expiry, then approve it.
 6. Confirm the result is `AUTHORIZED_NO_DISPATCH` and the receipt says
    `execution_authorized: false`.
-7. Authenticate as an admin and add one fictional mock observation. Confirm it
+7. As the reviewer, issue an envelope for the exact configured relying-party
+   audience. Confirm all signed dispatch, execution, provider-instruction, and
+   money-movement capability fields are `false`, and confirm the signed
+   identity assurance says `oidc` and `cryptographically_verified: true`.
+   Confirm its `trust_domain_id` equals the value pinned during pilot setup.
+8. Fetch `/.well-known/jwks.json` without a token, confirm it contains no
+   private `d` value, and verify the compact JWS against the pinned issuer,
+   audience, tenant, exact `issued_at`, identity trust domain, policy-
+   configuration digest, approval set and audit binding.
+9. Authenticate as the dedicated consumer and consume the envelope once.
+   Confirm the same consumer/idempotency operation replays identically, while
+   a different replay is rejected. Confirm the consumer cannot list proposals.
+10. Authenticate as an admin and add one fictional mock observation. Confirm it
    does not alter the authorization status or claim funds moved.
-8. Fetch the audit trail and integrity report; require every integrity flag to
+11. Fetch the audit trail and integrity report; require every integrity flag to
    be true.
-9. Repeat with a denial, rejection, cancellation, expired proposal, duplicate
+12. Repeat with a denial, rejection, cancellation, expired proposal, duplicate
    approver, two-person approval, and `IN_DOUBT`. Confirm `IN_DOUBT` rejects
    every later observation.
-10. Probe likely execution paths such as `/v1/pay`, `/v1/execute`, and
+13. Probe likely execution paths such as `/v1/pay`, `/v1/execute`, and
     `/v1/intents/{id}/execute`; every one must be absent.
+
+Also let one envelope expire without consuming it. Confirm it cannot be
+reissued or extended for the same authorization state: a new proposal and new
+human review are required.
 
 Record the release tag, commit, image identifier, policy values, OIDC issuer
 and audience, timestamps, and expected results. Never record bearer tokens or
@@ -128,6 +150,8 @@ Agree on numbers with the participant before the pilot. A useful minimum is:
   execution routes;
 - zero duplicate proposals for identical agent/idempotency-key pairs;
 - all sampled integrity reports valid before and after restart/restore;
+- every issued envelope verifies for exactly its configured audience and every
+  second, different consume attempt is rejected;
 - reviewers can identify amount, payee alias, purpose, policy result, and
   expiry before deciding;
 - the participant can explain the distinction between authorization evidence,
@@ -160,8 +184,8 @@ later phase, not exceptions to this one.
 
 Stop external access immediately if authentication can be bypassed, an agent
 can act outside its role or ownership scope, integrity verification fails, the
-receipt key may be exposed, the database is damaged, or any real payment data
-or credential enters the system.
+receipt or envelope-signing key may be exposed, the database is damaged, or
+any real payment data or credential enters the system.
 
 1. Disable the public proxy route or its access policy.
 2. Stop the Parimit container without deleting its volume.
@@ -170,14 +194,29 @@ or credential enters the system.
 4. Revoke the affected OIDC client, session, or subject and rotate exposed
    credentials.
 5. Restore the last known-good application image together with its matching
-   stopped-instance SQLite snapshot and receipt key.
+   stopped-instance SQLite snapshot, receipt key and envelope-signing key.
 6. Re-run the acceptance checks before reopening access.
 
-The database and receipt key are a verification pair. Rotating the key in
-place makes existing approval receipts fail integrity checks. Preserve each
-snapshot with the secret version needed to verify it, using the organization's
-secret manager and retention rules. Never weaken verification to make an old
-snapshot readable.
+The database, receipt key and envelope key history are one recovery set.
+Rotating the receipt key in place makes existing approval receipts and the
+protected public-key registry fail integrity checks. Preserve each snapshot
+with the receipt-key version and active signing-key version needed by that
+deployment, using the organization's secret manager and retention rules.
+Never weaken verification to make an old snapshot readable.
+
+Alpha.3 does not support receipt-key rotation or in-place changes to the
+database's tenant, envelope issuer, single relying-party audience,
+authentication mode, exact identity trust domain, policy configuration, or
+envelope lifetime policy. On first startup, the service binds all of them to
+the database with an integrity root; every later startup fails closed if any
+differs. A v3 database with material history and a missing root also fails
+closed. OIDC mode refuses approval history that predates this binding because
+its original authentication strength cannot be proved. If the receipt key is
+lost or suspected compromised, stop the pilot,
+preserve the old database and matching recovery set, and begin a new pilot
+database with a new trust configuration. Envelope-signing keys are separate
+and may be rotated while historical public keys remain in the protected
+registry.
 
 ## Exit decision
 

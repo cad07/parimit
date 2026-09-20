@@ -1,6 +1,6 @@
 {
   "name": "@parimit/sdk",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "Proposal-only TypeScript client for Parimit pilot integrations.",
   "type": "module",
   "private": true,

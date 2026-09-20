@@ -13,6 +13,8 @@ import { ParimitError } from "../src/errors.ts";
 import { createHttpHandler } from "../src/http.ts";
 import { ParimitService } from "../src/service.ts";
 
+const TEST_OIDC_TRUST_DOMAIN_ID = `sha256:${"a".repeat(64)}`;
+
 const identities: Readonly<Record<string, AuthenticatedActor>> = {
   "Bearer agent-a": {
     actorId: "oidc:agent-a",
@@ -35,6 +37,13 @@ const identities: Readonly<Record<string, AuthenticatedActor>> = {
     issuer: "https://identity.example.test",
     authenticationMethod: "oidc",
   },
+  "Bearer consumer": {
+    actorId: "oidc:consumer",
+    actorRole: "consumer",
+    subject: "consumer",
+    issuer: "https://identity.example.test",
+    authenticationMethod: "oidc",
+  },
   "Bearer operator": {
     actorId: "oidc:operator",
     actorRole: "admin",
@@ -46,6 +55,7 @@ const identities: Readonly<Record<string, AuthenticatedActor>> = {
 
 const identityProvider: IdentityProvider = {
   authenticationMethod: "oidc",
+  identityTrustDomainId: TEST_OIDC_TRUST_DOMAIN_ID,
   async authenticate(headers: AuthenticationHeaders): Promise<AuthenticatedActor> {
     const authorization = headers.authorization;
     if (typeof authorization !== "string" || identities[authorization] === undefined) {
@@ -83,10 +93,24 @@ test("HTTP handlers require an explicit matching identity provider", (t) => {
   const service = new ParimitService({
     receiptSecret: "http-handler-auth-config-test-secret-at-least-32-bytes",
     authenticationMode: "oidc",
+    identityTrustDomainId: TEST_OIDC_TRUST_DOMAIN_ID,
   });
   t.after(() => service.close());
   assert.throws(
     () => createHttpHandler(service),
+    (error: unknown) =>
+      error instanceof ParimitError &&
+      error.code === "INVALID_AUTH_CONFIGURATION" &&
+      error.statusCode === 500,
+  );
+  assert.throws(
+    () =>
+      createHttpHandler(service, {
+        identityProvider: {
+          ...identityProvider,
+          identityTrustDomainId: `sha256:${"b".repeat(64)}`,
+        },
+      }),
     (error: unknown) =>
       error instanceof ParimitError &&
       error.code === "INVALID_AUTH_CONFIGURATION" &&
@@ -115,6 +139,7 @@ test("HTTP identity and RBAC isolate agents, reviewers, and mock operators", asy
   const service = new ParimitService({
     receiptSecret: "http-authz-test-secret-at-least-32-bytes",
     authenticationMode: "oidc",
+    identityTrustDomainId: TEST_OIDC_TRUST_DOMAIN_ID,
   });
   const server = createServer(createHttpHandler(service, { identityProvider }));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -209,6 +234,111 @@ test("HTTP identity and RBAC isolate agents, reviewers, and mock operators", asy
   assert.equal(approvedResponse.status, 200);
   assert.equal(((await payload(approvedResponse)).data as Record<string, unknown>).status, "AUTHORIZED_NO_DISPATCH");
 
+  const publicKeysResponse = await fetch(`${base}/.well-known/jwks.json`);
+  assert.equal(publicKeysResponse.status, 200);
+  const publicKeys = (await payload(publicKeysResponse)).keys as Array<Record<string, unknown>>;
+  assert.equal(publicKeys.length, 1);
+  assert.equal(publicKeys[0]?.kty, "OKP");
+  assert.equal("d" in publicKeys[0]!, false);
+
+  const agentIssue = await fetch(`${base}/v1/intents/${id}/evidence-envelopes`, {
+    method: "POST",
+    headers: headers("agent-a", true),
+    body: JSON.stringify({
+      audience: "urn:parimit:consumer:local-demo",
+      idempotency_key: "agent-must-not-issue",
+    }),
+  });
+  assert.equal(agentIssue.status, 403);
+
+  const consumerList = await fetch(`${base}/v1/intents`, {
+    headers: headers("consumer"),
+  });
+  assert.equal(consumerList.status, 403);
+
+  const issueResponse = await fetch(`${base}/v1/intents/${id}/evidence-envelopes`, {
+    method: "POST",
+    headers: headers("reviewer", true),
+    body: JSON.stringify({
+      audience: "urn:parimit:consumer:local-demo",
+      idempotency_key: "http-envelope-issue",
+      expires_in_seconds: 120,
+    }),
+  });
+  assert.equal(issueResponse.status, 201);
+  const envelope = (await payload(issueResponse)).data as Record<string, unknown>;
+  assert.equal(envelope.execution_authorized, false);
+  assert.equal(envelope.moves_money, false);
+  const compactJws = String(envelope.compact_jws);
+
+  const missingAudience = await fetch(`${base}/v1/evidence-envelopes/verify`, {
+    method: "POST",
+    headers: headers("consumer", true),
+    body: JSON.stringify({ compact_jws: compactJws }),
+  });
+  assert.equal(missingAudience.status, 400);
+
+  const agentVerify = await fetch(`${base}/v1/evidence-envelopes/verify`, {
+    method: "POST",
+    headers: headers("agent-a", true),
+    body: JSON.stringify({
+      compact_jws: compactJws,
+      audience: "urn:parimit:consumer:local-demo",
+    }),
+  });
+  assert.equal(agentVerify.status, 403);
+
+  const verifyResponse = await fetch(`${base}/v1/evidence-envelopes/verify`, {
+    method: "POST",
+    headers: headers("consumer", true),
+    body: JSON.stringify({
+      compact_jws: compactJws,
+      audience: "urn:parimit:consumer:local-demo",
+    }),
+  });
+  assert.equal(verifyResponse.status, 200);
+  assert.equal(((await payload(verifyResponse)).data as Record<string, unknown>).valid, true);
+
+  const consumptionBody = JSON.stringify({
+    compact_jws: compactJws,
+    audience: "urn:parimit:consumer:local-demo",
+    idempotency_key: "http-envelope-consume",
+  });
+  const consumeResponse = await fetch(`${base}/v1/evidence-envelopes/consume`, {
+    method: "POST",
+    headers: headers("consumer", true),
+    body: consumptionBody,
+  });
+  assert.equal(consumeResponse.status, 200);
+  const consumed = (await payload(consumeResponse)).data as Record<string, unknown>;
+  assert.equal((consumed.consumption as Record<string, unknown>).state, "CONSUMED");
+
+  const idempotentConsumeResponse = await fetch(`${base}/v1/evidence-envelopes/consume`, {
+    method: "POST",
+    headers: headers("consumer", true),
+    body: consumptionBody,
+  });
+  assert.equal(idempotentConsumeResponse.status, 200);
+  assert.equal(
+    ((await payload(idempotentConsumeResponse)).data as Record<string, unknown>).idempotent_replay,
+    true,
+  );
+
+  const replayResponse = await fetch(`${base}/v1/evidence-envelopes/consume`, {
+    method: "POST",
+    headers: headers("operator", true),
+    body: JSON.stringify({
+      compact_jws: compactJws,
+      audience: "urn:parimit:consumer:local-demo",
+      idempotency_key: "different-consumer-operation",
+    }),
+  });
+  assert.equal(replayResponse.status, 409);
+  assert.equal(
+    ((await payload(replayResponse)).error as Record<string, unknown>).code,
+    "ENVELOPE_REPLAY_DETECTED",
+  );
+
   const observationResponse = await fetch(`${base}/v1/demo/intents/${id}/observations`, {
     method: "POST",
     headers: headers("operator", true),
@@ -246,9 +376,11 @@ test("HTTP fails closed when an identity provider returns an unknown runtime rol
   const service = new ParimitService({
     receiptSecret: "http-invalid-identity-test-secret-at-least-32-bytes",
     authenticationMode: "oidc",
+    identityTrustDomainId: TEST_OIDC_TRUST_DOMAIN_ID,
   });
   const invalidIdentityProvider: IdentityProvider = {
     authenticationMethod: "oidc",
+    identityTrustDomainId: TEST_OIDC_TRUST_DOMAIN_ID,
     async authenticate(): Promise<AuthenticatedActor> {
       return {
         actorId: "oidc:invalid-role",

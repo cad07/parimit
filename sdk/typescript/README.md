@@ -3,8 +3,12 @@
 This dependency-free TypeScript client keeps Parimit's trust zones separate:
 
 - `createAgentClient` can propose, simulate policy, inspect, audit, and cancel.
-- `createReviewerClient` can inspect and approve or reject an exact proposal.
-- `createOperatorClient` can attach clearly labelled mock observations.
+- `createReviewerClient` can inspect, approve or reject, issue signed evidence,
+  and request read-only envelope verification.
+- `createEnvelopeConsumerClient` can fetch public keys, verify an envelope, and
+  atomically record one evidence acceptance without browsing proposals.
+- `createOperatorClient` can issue, verify, or consume evidence and attach
+  clearly labelled mock observations.
 
 No client exposes a payment execution, dispatch, transfer, debit, or UPI method.
 
@@ -47,12 +51,22 @@ Use `demoIdentity` only with an explicitly local demo server. Shared pilots
 must use an OIDC access token over HTTPS. Reviewer and operator clients should
 use separate human identities; never give either token to an agent process.
 
-All clients provide read and integrity methods. Their mutation surfaces remain
-role-shaped:
+Their surfaces remain role-shaped:
 
 - `createAgentClient`: simulate, create, and cancel an eligible own proposal;
-- `createReviewerClient`: approve or reject an exact proposal; and
-- `createOperatorClient`: attach a fictional mock observation.
+- `createReviewerClient`: approve or reject an exact proposal and issue signed,
+  non-dispatchable evidence after full approval;
+- `createEnvelopeConsumerClient`: verify and consume evidence once, with no
+  proposal-list or proposal-read method; and
+- `createOperatorClient`: issue/verify/consume evidence and attach a fictional
+  mock observation.
+
+`getEnvelopeKeys()` reads the standard, unwrapped JWKS document from
+`/.well-known/jwks.json`. `verifyEvidenceEnvelope()` is read-only and is not
+replay protection. `consumeEvidenceEnvelope()` records evidence acceptance
+inside the configured Parimit persistence boundary; it does not dispatch or
+execute a payment. Offline recipients still need their own durable replay
+ledger.
 
 These method shapes are guardrails for integration code. The server's OIDC,
 role, ownership, lifecycle, and policy checks are the security boundary.

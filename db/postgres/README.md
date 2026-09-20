@@ -10,13 +10,22 @@ this document are complete.
 
 What is available now:
 
-- a PostgreSQL 14+ schema preserving the proposal, approval, observation, and
-  ordered hash-chain data model;
+- a PostgreSQL 14+ schema preserving the tenant-bound proposal, approval,
+  observation, signed-envelope, one-time-consumption, signing-key, and ordered
+  hash-chain data model;
 - database constraints for the current validation boundary;
 - append-only triggers for approval, observation, and audit evidence;
 - immutable intent evidence with only valid outward status transitions;
 - a unique `(intent_id, previous_hash)` constraint to reject audit forks;
 - stable observation insertion order to replace SQLite `rowid`;
+- tenant-scoped agent idempotency and envelope-to-intent constraints;
+- append-only signing keys and immutable envelope evidence with a one-way
+  consumption transition;
+- a receipt-key HMAC checkpoint over the complete signing-key registry, updated
+  atomically with each key insert so missing historical keys fail closed;
+- an append-only, fixed-name `receipt_integrity_root_v1` record binding the
+  configured receipt secret and tenant to this database; alpha.3 does not
+  rotate this root;
 - a small driver-neutral transaction and audit-append contract in
   `src/storage/postgres-contract.ts`;
 - dependency-free contract tests.
@@ -28,7 +37,8 @@ What is not available now:
 - a runtime configuration switch;
 - SQLite-to-PostgreSQL data migration;
 - a live PostgreSQL parity or concurrency test in CI;
-- multi-tenancy, row-level security, backups, or operational monitoring.
+- multi-tenant request routing, row-level security, backups, or operational
+  monitoring.
 
 The schema is therefore suitable for development of the adapter, not a claim
 that the alpha can be deployed on PostgreSQL today.
@@ -78,8 +88,16 @@ tables and should receive only:
 - `USAGE` on schema `parimit`;
 - `SELECT` and `INSERT` on `policy_subjects` plus the privilege needed for its
   row lock;
-- `SELECT` and `INSERT` on `intents`, with `UPDATE (status)` only;
+- `SELECT` and `INSERT` on `intents`, with `UPDATE (status, state_version)` only;
 - `SELECT` and `INSERT` on `approvals`, `observations`, and `audit_events`;
+- `SELECT` and `INSERT` on `envelope_signing_keys` and
+  `authorization_envelopes`, with `UPDATE (consumed_at, consumed_by,
+  consumption_idempotency_key)` only on envelopes;
+- `SELECT` and `INSERT` on `envelope_signing_key_registry_state`, with
+  `UPDATE (value)` but no delete privilege; key insertion and checkpoint
+  replacement must share one transaction;
+- `SELECT` and `INSERT` on `service_integrity_roots`, with no update or delete
+  privilege;
 - required sequence privileges for identity columns.
 
 Do not grant runtime `DELETE`, schema `CREATE`, trigger-management, or
@@ -101,20 +119,51 @@ role separation; a table owner or superuser can disable them.
 4. Map `jsonb` policy reasons and audit payloads back into domain values before
    canonical hashing. Timestamp columns intentionally retain exact
    `Date#toISOString()` text because those bytes participate in signatures and
-   hashes.
-5. Port operations in this order:
+   hashes. The domain checks both the exact millisecond-UTC shape and a
+   PostgreSQL UTC parse/format round trip, so impossible calendar dates are
+   rejected rather than treated as canonical text.
+5. Register `receipt_integrity_root_v1` before registering envelope signing
+   keys. Compute the same HMAC over canonical
+   `{ version: "parimit-receipt-integrity-root-v1", tenant_id,
+   envelope_issuer, envelope_audience, envelope_maximum_lifetime_seconds,
+   authentication_mode, identity_trust_domain_id,
+   policy_configuration_digest }` as SQLite. If
+   the row exists, compare it in constant time and fail startup on mismatch. If
+   it is absent on a genuine pre-v3 database, verify all existing approval
+   receipts and signing-key attestations before the first insert. A v3 database
+   with a missing root is corruption and must fail closed. Never update, delete,
+   or upsert the root: alpha.3 receipt-secret or trust-configuration rotation
+   requires a future explicit migration design.
+   In the same bootstrap transaction, insert
+   `envelope_signing_key_registry_state_v1` as the receipt-key HMAC of canonical
+   `{ version: "parimit-envelope-signing-key-registry-state-v1", keys: [] }`.
+   For every key rotation, sort the complete semantic rows by `key_id`; each
+   member is `{ key_id, public_jwk, created_at, attestation_hmac }`. Insert the
+   new row and replace the checkpoint HMAC in one transaction after validating
+   all row attestations and the previous checkpoint. A missing checkpoint on a
+   v3 database, or any full-set mismatch, is corruption and must fail closed.
+6. Port operations in this order:
    create/idempotent replay, reads and integrity verification, approval,
-   rejection, cancellation, expiry, and mock observation.
-6. Keep the SQLite repository for local use while running the same behavioral
+   rejection, cancellation, expiry, envelope-key registration, envelope
+   issuance/verification/consumption, and mock observation.
+7. Insert every authorization envelope with all three consumption columns
+   null. The only legal update changes that exact null triple to a complete
+   `(consumed_at, consumed_by, consumption_idempotency_key)` triple, with
+   `issued_at <= consumed_at < expires_at`, in the same transaction as its
+   audit event.
+8. Keep the SQLite repository for local use while running the same behavioral
    suite against both repositories. Do not add a runtime storage selector until
    parity is green.
-7. Add live PostgreSQL concurrency tests for duplicate idempotency keys, daily
+9. Add live PostgreSQL concurrency tests for duplicate idempotency keys, daily
    exposure, two simultaneous final approvals, approval-versus-cancellation,
-   expiry-versus-approval, competing audit appends, and `IN_DOUBT` versus a
-   later observation.
-8. Add backup/restore and point-in-time-recovery drills, connection saturation
+   expiry-versus-approval, concurrent envelope issuance, concurrent one-time
+   consumption, consumption-versus-expiry, competing audit appends, and
+   `IN_DOUBT` versus a later observation.
+10. Add backup/restore and point-in-time-recovery drills, connection saturation
    metrics, slow-query visibility, migration rollback policy, and secret
-   rotation before any external pilot depends on the database.
+   lifecycle procedures before any external pilot depends on the database.
+   The alpha.3 receipt secret is explicitly excluded from rotation because its
+   database-bound integrity root is non-rotatable.
 
 ## Required parity gates
 
@@ -124,6 +173,10 @@ PostgreSQL server:
 - every existing service and HTTP/MCP test through the PostgreSQL repository;
 - corruption tests for every hashed or receipt-bound field;
 - concurrent race tests proving the locks above;
+- envelope-signing-key rotation, envelope-tamper, audience, expiry, and replay
+  tests;
+- startup mismatch and mutation tests for the non-rotatable receipt integrity
+  root;
 - process-kill tests proving mutation and audit evidence commit together;
 - migration checks on every supported PostgreSQL major version;
 - restore verification from an encrypted backup;
@@ -132,12 +185,14 @@ PostgreSQL server:
 
 ## Remaining product decision: tenancy
 
-The migration mirrors today's single-tenant alpha. An external multi-tenant
-pilot needs a tenant model before runtime wiring: tenant identifiers on every
-row, tenant-scoped idempotency and actor constraints, authorization-aware
-queries, and preferably row-level security as a secondary control. Until that
-design lands and is tested, a PostgreSQL-backed deployment must be treated as
-single-tenant only.
+The schema binds tenant identifiers into policy subjects, intents, agent
+idempotency, and authorization-envelope relationships. That is a necessary
+storage invariant, not a complete multi-tenant product. The running service
+still has one configured tenant and no request-level tenant routing or tenant
+claim. The future adapter must make every authorization-aware query
+tenant-scoped and should add row-level security as a secondary control. Until
+those controls and cross-tenant negative tests exist, a PostgreSQL-backed
+deployment must still be treated as single-tenant only.
 
 PostgreSQL changes durability and concurrency characteristics; it does not
 change Parimit's boundary. This schema contains no payment execution table,

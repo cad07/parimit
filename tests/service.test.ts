@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -74,7 +74,9 @@ test("validates INR minor units and creates proposal-only immutable intents", (t
   assert.equal(intent.amount.currency, "INR");
   assert.equal(intent.amount.minor, "499");
   assert.equal(intent.status, "AWAITING_APPROVAL");
-  assert.equal(intent.intent_version, "parimit-payment-intent-v2");
+  assert.equal(intent.intent_version, "parimit-payment-intent-v3");
+  assert.equal(intent.tenant_id, "local-demo");
+  assert.equal(intent.state_version, 1);
   assert.equal(intent.initial_status, "AWAITING_APPROVAL");
   assert.equal(intent.required_approvals, 1);
   assert.equal(intent.policy.rules_version, "parimit-policy-v1");
@@ -132,7 +134,7 @@ test("validates INR minor units and creates proposal-only immutable intents", (t
   );
 });
 
-test("migrates and verifies existing v1 digest rows without rewriting their hashes", (t) => {
+test("atomically repairs a partial legacy migration without rewriting v1 hashes", (t) => {
   const directory = mkdtempSync(join(tmpdir(), "parimit-v1-migration-"));
   const databasePath = join(directory, "legacy.db");
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -141,6 +143,7 @@ test("migrates and verifies existing v1 digest rows without rewriting their hash
   legacyDatabase.exec(`
     CREATE TABLE intents (
       id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL DEFAULT 'local-demo',
       idempotency_key TEXT NOT NULL,
       request_fingerprint TEXT NOT NULL,
       agent_id TEXT NOT NULL,
@@ -154,6 +157,7 @@ test("migrates and verifies existing v1 digest rows without rewriting their hash
       policy_allowed INTEGER NOT NULL CHECK (policy_allowed IN (0, 1)),
       policy_reasons TEXT NOT NULL,
       rules_version TEXT NOT NULL,
+      state_version INTEGER NOT NULL DEFAULT 1,
       intent_hash TEXT NOT NULL,
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
@@ -241,13 +245,582 @@ test("migrates and verifies existing v1 digest rows without rewriting their hash
     .run(id, canonicalJson(auditPayload), createdAt, eventHash);
   legacyDatabase.close();
 
-  const service = new ParimitService({ databasePath, receiptSecret: "legacy-secret" });
+  const service = new ParimitService({
+    databasePath,
+    receiptSecret: "legacy-secret",
+    tenantId: "migrated-tenant",
+  });
   t.after(() => service.close());
   const migrated = service.getIntent(id);
   assert.equal(migrated.intent_version, "parimit-payment-intent-v1");
+  assert.equal(migrated.tenant_id, "migrated-tenant");
   assert.equal(migrated.initial_status, "AWAITING_APPROVAL");
   assert.equal(migrated.intent_hash, intentHash);
   assert.equal(service.verifyIntegrity(id).valid, true);
+});
+
+test("migration preserves an existing v2 initial-state mismatch as detected corruption", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "parimit-v2-corruption-migration-"));
+  const databasePath = join(directory, "legacy.db");
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+
+  const legacyDatabase = new DatabaseSync(databasePath);
+  legacyDatabase.exec(`
+    CREATE TABLE intents (
+      id TEXT PRIMARY KEY,
+      idempotency_key TEXT NOT NULL,
+      request_fingerprint TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      on_behalf_of TEXT,
+      amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+      currency TEXT NOT NULL CHECK (currency = 'INR'),
+      payee_reference TEXT NOT NULL,
+      purpose TEXT NOT NULL,
+      status TEXT NOT NULL,
+      required_approvals INTEGER NOT NULL CHECK (required_approvals IN (1, 2)),
+      policy_allowed INTEGER NOT NULL CHECK (policy_allowed IN (0, 1)),
+      policy_reasons TEXT NOT NULL,
+      rules_version TEXT NOT NULL,
+      intent_version TEXT NOT NULL CHECK (
+        intent_version IN ('parimit-payment-intent-v1', 'parimit-payment-intent-v2')
+      ),
+      initial_status TEXT NOT NULL CHECK (initial_status IN ('POLICY_DENIED', 'AWAITING_APPROVAL')),
+      intent_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      UNIQUE (agent_id, idempotency_key)
+    );
+    CREATE TABLE audit_events (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      intent_id TEXT NOT NULL REFERENCES intents(id),
+      event_type TEXT NOT NULL,
+      actor_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      previous_hash TEXT NOT NULL,
+      event_hash TEXT NOT NULL
+    );
+  `);
+  const id = "22222222-2222-4222-8222-222222222222";
+  const createdAt = "2099-01-01T00:00:00.000Z";
+  const expiresAt = "2099-01-01T00:01:00.000Z";
+  const policy = {
+    allowed: true,
+    reasons: ["HUMAN_APPROVAL_REQUIRED"],
+    rules_version: "parimit-policy-v1",
+    required_approvals: 1,
+    current_daily_exposure_minor: "0",
+    projected_daily_exposure_minor: "100",
+  };
+  const intentHash = sha256(
+    canonicalJson({
+      version: "parimit-payment-intent-v2",
+      id,
+      idempotency_key: "legacy-v2-corrupt-state",
+      requested_by: { type: "agent", id: "agent-demo" },
+      on_behalf_of: null,
+      amount: { currency: "INR", minor: "100" },
+      payee_reference: "merchant_demo_001",
+      purpose: "Preserve migration corruption evidence",
+      initial_status: "AWAITING_APPROVAL",
+      policy: {
+        allowed: true,
+        reasons: policy.reasons,
+        rules_version: policy.rules_version,
+        required_approvals: 1,
+      },
+      created_at: createdAt,
+      expires_at: expiresAt,
+    }),
+  );
+  legacyDatabase
+    .prepare(
+      `INSERT INTO intents
+        (id, idempotency_key, request_fingerprint, agent_id, on_behalf_of, amount_minor,
+         currency, payee_reference, purpose, status, required_approvals, policy_allowed,
+         policy_reasons, rules_version, intent_version, initial_status, intent_hash,
+         created_at, expires_at)
+       VALUES (?, ?, ?, 'agent-demo', NULL, 100, 'INR', 'merchant_demo_001', ?,
+               'AWAITING_APPROVAL', 1, 1, ?, ?, 'parimit-payment-intent-v2',
+               'POLICY_DENIED', ?, ?, ?)`,
+    )
+    .run(
+      id,
+      "legacy-v2-corrupt-state",
+      "legacy-v2-request-fingerprint",
+      "Preserve migration corruption evidence",
+      canonicalJson(policy.reasons),
+      policy.rules_version,
+      intentHash,
+      createdAt,
+      expiresAt,
+    );
+  const auditPayload = {
+    intent_hash: intentHash,
+    status: "AWAITING_APPROVAL",
+    policy,
+    boundary: "PROPOSAL_ONLY_NO_VALUE_MOVEMENT",
+  };
+  const eventHash = sha256(
+    canonicalJson({
+      intent_id: id,
+      event_type: "PROPOSAL_CREATED",
+      actor_id: "agent-demo",
+      payload: auditPayload,
+      occurred_at: createdAt,
+      previous_hash: "GENESIS",
+    }),
+  );
+  legacyDatabase
+    .prepare(
+      `INSERT INTO audit_events
+        (intent_id, event_type, actor_id, payload, occurred_at, previous_hash, event_hash)
+       VALUES (?, 'PROPOSAL_CREATED', 'agent-demo', ?, ?, 'GENESIS', ?)`,
+    )
+    .run(id, canonicalJson(auditPayload), createdAt, eventHash);
+  legacyDatabase.close();
+
+  const service = new ParimitService({
+    databasePath,
+    receiptSecret: "legacy-corruption-preservation-secret",
+    tenantId: "migrated-tenant",
+  });
+  t.after(() => service.close());
+  const migratedRow = service.database
+    .prepare("SELECT initial_status FROM intents WHERE id = ?")
+    .get(id) as { initial_status: string };
+  assert.equal(migratedRow.initial_status, "POLICY_DENIED");
+  const report = service.verifyIntegrity(id);
+  assert.equal(report.valid, false);
+  assert.ok(report.failures.includes("INTENT_HASH_MISMATCH"));
+  assert.throws(
+    () => service.getIntent(id),
+    (error: unknown) => error instanceof ParimitError && error.code === "INTEGRITY_FAILURE",
+  );
+});
+
+test("legacy receipt preflight rejects unsafe startup before migration and permits a clean retry", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "parimit-legacy-receipt-preflight-"));
+  const databasePath = join(directory, "legacy.db");
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+
+  const correctReceiptSecret = "legacy-preflight-correct-receipt-secret";
+  const id = "33333333-3333-4333-8333-333333333333";
+  const approvalId = "44444444-4444-4444-8444-444444444444";
+  const createdAt = "2099-01-01T00:00:00.000Z";
+  const approvedAt = "2099-01-01T00:00:10.000Z";
+  const expiresAt = "2099-01-01T00:01:00.000Z";
+  const reviewerId = "legacy-human-reviewer";
+  const policy = {
+    allowed: true,
+    reasons: ["HUMAN_APPROVAL_REQUIRED"],
+    rules_version: "parimit-policy-v1",
+    required_approvals: 1,
+    current_daily_exposure_minor: "0",
+    projected_daily_exposure_minor: "100",
+  };
+  const intentHash = sha256(
+    canonicalJson({
+      version: "parimit-payment-intent-v2",
+      id,
+      idempotency_key: "legacy-preflight-v2",
+      requested_by: { type: "agent", id: "agent-demo" },
+      on_behalf_of: null,
+      amount: { currency: "INR", minor: "100" },
+      payee_reference: "merchant_demo_001",
+      purpose: "Verify failed startup leaves legacy evidence untouched",
+      initial_status: "AWAITING_APPROVAL",
+      policy: {
+        allowed: true,
+        reasons: policy.reasons,
+        rules_version: policy.rules_version,
+        required_approvals: 1,
+      },
+      created_at: createdAt,
+      expires_at: expiresAt,
+    }),
+  );
+  const receiptHmac = hmacSha256(correctReceiptSecret, {
+    version: "parimit-approval-receipt-v1",
+    intent_id: id,
+    intent_hash: intentHash,
+    actor_id: reviewerId,
+    actor_role: "approver",
+    decision: "APPROVE",
+    created_at: approvedAt,
+  });
+
+  const legacyDatabase = new DatabaseSync(databasePath);
+  legacyDatabase.exec(`
+    CREATE TABLE intents (
+      id TEXT PRIMARY KEY,
+      idempotency_key TEXT NOT NULL,
+      request_fingerprint TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      on_behalf_of TEXT,
+      amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+      currency TEXT NOT NULL CHECK (currency = 'INR'),
+      payee_reference TEXT NOT NULL,
+      purpose TEXT NOT NULL,
+      status TEXT NOT NULL,
+      required_approvals INTEGER NOT NULL CHECK (required_approvals IN (1, 2)),
+      policy_allowed INTEGER NOT NULL CHECK (policy_allowed IN (0, 1)),
+      policy_reasons TEXT NOT NULL,
+      rules_version TEXT NOT NULL,
+      intent_version TEXT NOT NULL CHECK (
+        intent_version IN ('parimit-payment-intent-v1', 'parimit-payment-intent-v2')
+      ),
+      initial_status TEXT NOT NULL CHECK (initial_status IN ('POLICY_DENIED', 'AWAITING_APPROVAL')),
+      intent_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      UNIQUE (agent_id, idempotency_key)
+    );
+    CREATE TABLE approvals (
+      id TEXT PRIMARY KEY,
+      intent_id TEXT NOT NULL REFERENCES intents(id),
+      actor_id TEXT NOT NULL,
+      actor_role TEXT NOT NULL CHECK (actor_role IN ('approver', 'admin')),
+      decision TEXT NOT NULL CHECK (decision IN ('APPROVE', 'REJECT')),
+      intent_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      receipt_hmac TEXT NOT NULL,
+      UNIQUE (intent_id, actor_id)
+    );
+    CREATE TABLE audit_events (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      intent_id TEXT NOT NULL REFERENCES intents(id),
+      event_type TEXT NOT NULL,
+      actor_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      previous_hash TEXT NOT NULL,
+      event_hash TEXT NOT NULL
+    );
+  `);
+  legacyDatabase
+    .prepare(
+      `INSERT INTO intents
+        (id, idempotency_key, request_fingerprint, agent_id, on_behalf_of, amount_minor,
+         currency, payee_reference, purpose, status, required_approvals, policy_allowed,
+         policy_reasons, rules_version, intent_version, initial_status, intent_hash,
+         created_at, expires_at)
+       VALUES (?, 'legacy-preflight-v2', 'legacy-preflight-fingerprint', 'agent-demo', NULL,
+               100, 'INR', 'merchant_demo_001', ?, 'AUTHORIZED_NO_DISPATCH', 1, 1,
+               ?, ?, 'parimit-payment-intent-v2', 'AWAITING_APPROVAL', ?, ?, ?)`,
+    )
+    .run(
+      id,
+      "Verify failed startup leaves legacy evidence untouched",
+      canonicalJson(policy.reasons),
+      policy.rules_version,
+      intentHash,
+      createdAt,
+      expiresAt,
+    );
+  legacyDatabase
+    .prepare(
+      `INSERT INTO approvals
+        (id, intent_id, actor_id, actor_role, decision, intent_hash, created_at, receipt_hmac)
+       VALUES (?, ?, ?, 'approver', 'APPROVE', ?, ?, ?)`,
+    )
+    .run(approvalId, id, reviewerId, intentHash, approvedAt, receiptHmac);
+
+  const initialAuditPayload = {
+    intent_hash: intentHash,
+    status: "AWAITING_APPROVAL",
+    policy,
+    boundary: "PROPOSAL_ONLY_NO_VALUE_MOVEMENT",
+  };
+  const initialEventHash = sha256(
+    canonicalJson({
+      intent_id: id,
+      event_type: "PROPOSAL_CREATED",
+      actor_id: "agent-demo",
+      payload: initialAuditPayload,
+      occurred_at: createdAt,
+      previous_hash: "GENESIS",
+    }),
+  );
+  legacyDatabase
+    .prepare(
+      `INSERT INTO audit_events
+        (intent_id, event_type, actor_id, payload, occurred_at, previous_hash, event_hash)
+       VALUES (?, 'PROPOSAL_CREATED', 'agent-demo', ?, ?, 'GENESIS', ?)`,
+    )
+    .run(id, canonicalJson(initialAuditPayload), createdAt, initialEventHash);
+
+  const approvalAuditPayload = {
+    actor_role: "approver",
+    decision: "APPROVE",
+    intent_hash: intentHash,
+    receipt_hmac: receiptHmac,
+    resulting_status: "AUTHORIZED_NO_DISPATCH",
+  };
+  const approvalEventHash = sha256(
+    canonicalJson({
+      intent_id: id,
+      event_type: "HUMAN_APPROVAL_RECORDED",
+      actor_id: reviewerId,
+      payload: approvalAuditPayload,
+      occurred_at: approvedAt,
+      previous_hash: initialEventHash,
+    }),
+  );
+  legacyDatabase
+    .prepare(
+      `INSERT INTO audit_events
+        (intent_id, event_type, actor_id, payload, occurred_at, previous_hash, event_hash)
+       VALUES (?, 'HUMAN_APPROVAL_RECORDED', ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      reviewerId,
+      canonicalJson(approvalAuditPayload),
+      approvedAt,
+      initialEventHash,
+      approvalEventHash,
+    );
+  legacyDatabase.close();
+
+  const assertLegacyDatabaseUntouched = (): void => {
+    const database = new DatabaseSync(databasePath);
+    try {
+      const columns = new Set(
+        (database.prepare("PRAGMA table_info(intents)").all() as Array<{ name: string }>).map(
+          (column) => column.name,
+        ),
+      );
+      assert.equal(columns.has("tenant_id"), false);
+      assert.equal(columns.has("state_version"), false);
+      assert.equal(
+        (
+          database
+            .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = ?")
+            .get("service_metadata") as { count: number }
+        ).count,
+        0,
+      );
+      const intentRow = database
+        .prepare("SELECT status, intent_hash FROM intents WHERE id = ?")
+        .get(id) as { status: string; intent_hash: string };
+      assert.equal(intentRow.status, "AUTHORIZED_NO_DISPATCH");
+      assert.equal(intentRow.intent_hash, intentHash);
+      assert.equal(
+        (
+          database
+            .prepare("SELECT receipt_hmac FROM approvals WHERE id = ?")
+            .get(approvalId) as { receipt_hmac: string }
+        ).receipt_hmac,
+        receiptHmac,
+      );
+    } finally {
+      database.close();
+    }
+  };
+
+  assert.throws(
+    () =>
+      new ParimitService({
+        databasePath,
+        receiptSecret: "wrong-legacy-preflight-receipt-secret",
+        tenantId: "mistyped-tenant",
+      }),
+    (error: unknown) =>
+      error instanceof ParimitError &&
+      error.code === "RECEIPT_KEY_MISMATCH" &&
+      error.statusCode === 500,
+  );
+  assertLegacyDatabaseUntouched();
+
+  assert.throws(
+    () =>
+      new ParimitService({
+        databasePath,
+        receiptSecret: correctReceiptSecret,
+        authenticationMode: "oidc",
+        identityTrustDomainId: `sha256:${"a".repeat(64)}`,
+        tenantId: "oidc-tenant",
+      }),
+    (error: unknown) =>
+      error instanceof ParimitError &&
+      error.code === "UNATTESTED_IDENTITY_HISTORY" &&
+      error.statusCode === 500,
+  );
+  assertLegacyDatabaseUntouched();
+
+  const recoveredService = new ParimitService({
+    databasePath,
+    receiptSecret: correctReceiptSecret,
+    tenantId: "intended-tenant",
+  });
+  t.after(() => recoveredService.close());
+  const migrated = recoveredService.getIntent(id);
+  assert.equal(migrated.intent_version, "parimit-payment-intent-v2");
+  assert.equal(migrated.tenant_id, "intended-tenant");
+  assert.equal(migrated.state_version, 2);
+  assert.equal(migrated.status, "AUTHORIZED_NO_DISPATCH");
+  assert.equal(migrated.approval_count, 1);
+  assert.equal(migrated.receipt?.approvals[0]?.receipt_hmac, receiptHmac);
+  assert.deepEqual(recoveredService.verifyIntegrity(id), {
+    valid: true,
+    intent_hash_valid: true,
+    approval_receipts_valid: true,
+    audit_chain_valid: true,
+    state_consistency_valid: true,
+    failures: [],
+  });
+});
+
+test("schema migration and receipt-root registration commit atomically", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "parimit-atomic-bootstrap-"));
+  const databasePath = join(directory, "parimit.db");
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+
+  const prototype = ParimitService.prototype as unknown as {
+    registerReceiptIntegrityRoot: () => void;
+  };
+  const original = prototype.registerReceiptIntegrityRoot;
+  prototype.registerReceiptIntegrityRoot = () => {
+    throw new Error("injected root-registration failure");
+  };
+  try {
+    assert.throws(
+      () =>
+        new ParimitService({
+          databasePath,
+          receiptSecret: "atomic-bootstrap-receipt-secret",
+        }),
+      /injected root-registration failure/,
+    );
+  } finally {
+    prototype.registerReceiptIntegrityRoot = original;
+  }
+
+  const failedDatabase = new DatabaseSync(databasePath);
+  assert.equal(
+    (
+      failedDatabase
+        .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table'")
+        .get() as { count: number }
+    ).count,
+    0,
+  );
+  failedDatabase.close();
+
+  const recovered = new ParimitService({
+    databasePath,
+    receiptSecret: "atomic-bootstrap-receipt-secret",
+  });
+  t.after(() => recovered.close());
+  const metadata = recovered.database
+    .prepare("SELECT value FROM service_metadata WHERE name = ?")
+    .get("receipt_integrity_root_v1") as { value: string };
+  assert.match(metadata.value, /^[A-Za-z0-9_-]{43}$/);
+});
+
+test("policy configuration and its payee sets are immutable after digest binding", (t) => {
+  const sourceBlocked = new Set(["blocked_demo_001"]);
+  const service = new ParimitService({
+    receiptSecret: "immutable-policy-configuration-secret",
+    policy: {
+      perTransactionLimitMinor: 1_000,
+      blockedPayees: sourceBlocked,
+      allowedPayees: ["merchant_demo_001"],
+    },
+  });
+  t.after(() => service.close());
+  const digest = service.policyConfigurationDigest;
+
+  assert.throws(() => {
+    (service.policy as { perTransactionLimitMinor: number }).perTransactionLimitMinor = 300_000;
+  }, TypeError);
+  assert.throws(() => {
+    (service as unknown as { policy: unknown }).policy = {
+      ...service.policy,
+      perTransactionLimitMinor: 300_000,
+    };
+  }, TypeError);
+  assert.equal(service.policy.perTransactionLimitMinor, 1_000);
+  assert.equal(
+    typeof (service.policy.blockedPayees as unknown as { add?: unknown }).add,
+    "undefined",
+  );
+  assert.throws(() =>
+    Set.prototype.add.call(service.policy.blockedPayees, "merchant_demo_001"),
+  );
+  sourceBlocked.add("merchant_demo_001");
+  const envelopeAudiences = (
+    service as unknown as { envelopeAudiences: ReadonlySet<string> }
+  ).envelopeAudiences;
+  assert.equal(typeof (envelopeAudiences as unknown as { add?: unknown }).add, "undefined");
+  assert.throws(() => Set.prototype.add.call(envelopeAudiences, "urn:consumer:other"));
+  assert.equal(service.policy.blockedPayees.has("merchant_demo_001"), false);
+  assert.equal(service.policyConfigurationDigest, digest);
+  assert.equal(service.createIntent(proposal("immutable-policy-denial", "1001")).status, "POLICY_DENIED");
+});
+
+test("invalid policy metadata and over-broad expiry fail before opening the database", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "parimit-invalid-policy-config-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const invalidRulesDatabase = join(directory, "invalid-rules.db");
+  assert.throws(
+    () =>
+      new ParimitService({
+        databasePath: invalidRulesDatabase,
+        receiptSecret: "r".repeat(32),
+        policy: { rulesVersion: "" },
+      }),
+    (error: unknown) =>
+      error instanceof ParimitError &&
+      error.code === "INVALID_CONFIGURATION" &&
+      error.statusCode === 500,
+  );
+  assert.equal(existsSync(invalidRulesDatabase), false);
+
+  const overBroadExpiryDatabase = join(directory, "over-broad-expiry.db");
+  assert.throws(
+    () =>
+      new ParimitService({
+        databasePath: overBroadExpiryDatabase,
+        receiptSecret: "e".repeat(32),
+        policy: { maxExpirySeconds: 86_401 },
+      }),
+    (error: unknown) =>
+      error instanceof ParimitError &&
+      error.code === "INVALID_CONFIGURATION" &&
+      error.statusCode === 500,
+  );
+  assert.equal(existsSync(overBroadExpiryDatabase), false);
+});
+
+test("alpha.3 rejects ambiguous multi-audience consumer authorization", () => {
+  assert.throws(
+    () =>
+      new ParimitService({
+        receiptSecret: "multi-audience-configuration-test-secret",
+        envelopeAudiences: ["urn:consumer:one", "urn:consumer:two"],
+      }),
+    (error: unknown) =>
+      error instanceof ParimitError &&
+      error.code === "INVALID_CONFIGURATION" &&
+      /exactly one envelope audience/.test(error.message),
+  );
+});
+
+test("issuer and audience trust URIs preserve exact trailing slashes", (t) => {
+  const service = new ParimitService({
+    receiptSecret: "u".repeat(32),
+    envelopeIssuer: "https://issuer.example/",
+    envelopeAudiences: ["https://consumer.example/"],
+  });
+  t.after(() => service.close());
+  const evidence = service.safetyMetadata().evidence_envelopes as {
+    issuer: string;
+    audiences: string[];
+  };
+  assert.equal(evidence.issuer, "https://issuer.example/");
+  assert.deepEqual(evidence.audiences, ["https://consumer.example/"]);
 });
 
 test("legacy v1 rows cannot be promoted by lowering the threshold and rewriting the audit chain", (t) => {
@@ -476,6 +1049,86 @@ test("agents cannot approve and high-value proposals require two distinct humans
   assert.equal(service.verifyIntegrity(created.id).valid, true);
 });
 
+test("clock rollback cannot commit approval, cancellation, observation, or audit evidence", (t) => {
+  let now = new Date("2026-09-20T10:00:01.900Z");
+  const approvalService = new ParimitService({
+    receiptSecret: "approval-clock-rollback-secret",
+    clock: () => now,
+  });
+  t.after(() => approvalService.close());
+  const approvalIntent = approvalService.createIntent(proposal("approval-clock-rollback"));
+  now = new Date("2026-09-20T10:00:01.100Z");
+  assert.throws(
+    () => approvalService.approveIntent(approvalIntent.id, "human-a", "approver", "APPROVE"),
+    (error: unknown) =>
+      error instanceof ParimitError && error.code === "CLOCK_ROLLBACK_DETECTED",
+  );
+  assert.equal(approvalService.getIntent(approvalIntent.id).approval_count, 0);
+  assert.equal(approvalService.getIntent(approvalIntent.id).state_version, 1);
+  assert.equal(approvalService.verifyIntegrity(approvalIntent.id).valid, true);
+
+  now = new Date("2026-09-20T10:01:01.900Z");
+  const cancellationService = new ParimitService({
+    receiptSecret: "cancellation-clock-rollback-secret",
+    clock: () => now,
+  });
+  t.after(() => cancellationService.close());
+  const cancellationIntent = cancellationService.createIntent(
+    proposal("cancellation-clock-rollback"),
+  );
+  now = new Date("2026-09-20T10:01:01.100Z");
+  assert.throws(
+    () => cancellationService.cancelIntent(cancellationIntent.id, "agent-demo", "agent"),
+    (error: unknown) =>
+      error instanceof ParimitError && error.code === "CLOCK_ROLLBACK_DETECTED",
+  );
+  assert.equal(cancellationService.getIntent(cancellationIntent.id).status, "AWAITING_APPROVAL");
+  assert.equal(cancellationService.getIntent(cancellationIntent.id).state_version, 1);
+
+  now = new Date("2026-09-20T10:02:01.000Z");
+  const observationService = new ParimitService({
+    receiptSecret: "observation-clock-rollback-secret",
+    clock: () => now,
+  });
+  t.after(() => observationService.close());
+  const observationIntent = observationService.createIntent(
+    proposal("observation-clock-rollback"),
+  );
+  now = new Date("2026-09-20T10:02:02.900Z");
+  observationService.approveIntent(
+    observationIntent.id,
+    "human-observer",
+    "approver",
+    "APPROVE",
+  );
+  now = new Date("2026-09-20T10:02:03.900Z");
+  observationService.recordMockObservation(observationIntent.id, "PENDING");
+  now = new Date("2026-09-20T10:02:03.100Z");
+  assert.throws(
+    () => observationService.recordMockObservation(observationIntent.id, "SUCCEEDED"),
+    (error: unknown) =>
+      error instanceof ParimitError && error.code === "CLOCK_ROLLBACK_DETECTED",
+  );
+  assert.equal(observationService.getIntent(observationIntent.id).observation?.status, "PENDING");
+  assert.equal(observationService.verifyIntegrity(observationIntent.id).valid, true);
+
+  appendForgedAuditEvent(
+    observationService,
+    observationIntent.id,
+    "FORGED_NON_MONOTONIC_EVENT",
+    "attacker",
+    { note: "cryptographically rehashed but chronologically false" },
+    "2026-09-20T10:02:03.200Z",
+  );
+  const chronologyReport = observationService.verifyIntegrity(observationIntent.id);
+  assert.equal(chronologyReport.audit_chain_valid, false);
+  assert.ok(
+    chronologyReport.failures.some((failure) =>
+      failure.startsWith("AUDIT_CHRONOLOGY_INVALID:"),
+    ),
+  );
+});
+
 test("rejection is terminal and mock observations require full authorization", (t) => {
   const service = new ParimitService({ receiptSecret: "test-secret" });
   t.after(() => service.close());
@@ -518,6 +1171,37 @@ test("intent expiry is enforced before a late approval", (t) => {
     (error: unknown) => error instanceof ParimitError && error.code === "INVALID_STATE",
   );
   assert.ok(service.getAudit(created.id).some((event) => event.event_type === "PROPOSAL_EXPIRED"));
+});
+
+test("cancellation rechecks expiry inside the state transition", (t) => {
+  const createdAt = new Date("2026-09-19T11:00:00.000Z");
+  let cancellationClock = false;
+  let cancellationClockReads = 0;
+  const service = new ParimitService({
+    receiptSecret: "cancellation-expiry-test-secret",
+    clock: () => {
+      if (!cancellationClock) return new Date(createdAt);
+      cancellationClockReads += 1;
+      return new Date(
+        cancellationClockReads === 1
+          ? "2026-09-19T11:00:00.999Z"
+          : "2026-09-19T11:00:01.000Z",
+      );
+    },
+  });
+  t.after(() => service.close());
+  const created = service.createIntent(
+    proposal("cancel-at-expiry", "100", { expires_in_seconds: 1 }),
+  );
+  cancellationClock = true;
+  assert.throws(
+    () => service.cancelIntent(created.id, "agent-demo", "agent"),
+    (error: unknown) => error instanceof ParimitError && error.code === "PROPOSAL_EXPIRED",
+  );
+  assert.equal(service.getIntent(created.id).status, "EXPIRED");
+  const eventTypes = service.getAudit(created.id).map((event) => event.event_type);
+  assert.equal(eventTypes.filter((event) => event === "PROPOSAL_EXPIRED").length, 1);
+  assert.equal(eventTypes.includes("PROPOSAL_CANCELLED"), false);
 });
 
 test("tampering with intent fields, approval receipts, or audit events is detected", (t) => {

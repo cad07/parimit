@@ -14,25 +14,41 @@ CREATE DOMAIN parimit.sha256_hex AS text
 CREATE DOMAIN parimit.canonical_timestamp AS text
   CHECK (
     VALUE ~ '^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][.][0-9]{3}Z$'
+    AND substring(VALUE FROM 1 FOR 4)::integer BETWEEN 1 AND 9999
+    AND to_char(
+      VALUE::timestamptz AT TIME ZONE 'UTC',
+      'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+    ) = VALUE
   );
 
 CREATE TABLE parimit.policy_subjects (
-  agent_id text PRIMARY KEY
+  tenant_id text NOT NULL
+    CHECK (
+      char_length(tenant_id) BETWEEN 1 AND 128
+      AND tenant_id ~ '^[A-Za-z0-9][A-Za-z0-9._:@/+\-]*$'
+    ),
+  agent_id text NOT NULL
     CHECK (
       char_length(agent_id) BETWEEN 1 AND 128
       AND agent_id ~ '^[A-Za-z0-9][A-Za-z0-9._:@/+\-]*$'
-    )
+    ),
+  PRIMARY KEY (tenant_id, agent_id)
 );
 
 CREATE TABLE parimit.intents (
   id uuid PRIMARY KEY,
+  tenant_id text NOT NULL
+    CHECK (
+      char_length(tenant_id) BETWEEN 1 AND 128
+      AND tenant_id ~ '^[A-Za-z0-9][A-Za-z0-9._:@/+\-]*$'
+    ),
   idempotency_key text NOT NULL
     CHECK (
       char_length(idempotency_key) BETWEEN 1 AND 128
       AND idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:@/+\-]*$'
     ),
   request_fingerprint parimit.sha256_hex NOT NULL,
-  agent_id text NOT NULL REFERENCES parimit.policy_subjects(agent_id)
+  agent_id text NOT NULL
     CHECK (
       char_length(agent_id) BETWEEN 1 AND 128
       AND agent_id ~ '^[A-Za-z0-9][A-Za-z0-9._:@/+\-]*$'
@@ -71,13 +87,24 @@ CREATE TABLE parimit.intents (
   policy_reasons jsonb NOT NULL CHECK (jsonb_typeof(policy_reasons) = 'array'),
   rules_version text NOT NULL CHECK (char_length(rules_version) BETWEEN 1 AND 128),
   intent_version text NOT NULL
-    CHECK (intent_version IN ('parimit-payment-intent-v1', 'parimit-payment-intent-v2')),
+    CHECK (
+      intent_version IN (
+        'parimit-payment-intent-v1',
+        'parimit-payment-intent-v2',
+        'parimit-payment-intent-v3'
+      )
+    ),
   initial_status text NOT NULL
     CHECK (initial_status IN ('POLICY_DENIED', 'AWAITING_APPROVAL')),
+  state_version bigint NOT NULL CHECK (state_version >= 1),
   intent_hash parimit.sha256_hex NOT NULL,
   created_at parimit.canonical_timestamp NOT NULL,
   expires_at parimit.canonical_timestamp NOT NULL,
-  CONSTRAINT intents_agent_idempotency_unique UNIQUE (agent_id, idempotency_key),
+  CONSTRAINT intents_policy_subject_fk
+    FOREIGN KEY (tenant_id, agent_id)
+    REFERENCES parimit.policy_subjects(tenant_id, agent_id),
+  CONSTRAINT intents_agent_idempotency_unique UNIQUE (tenant_id, agent_id, idempotency_key),
+  CONSTRAINT intents_tenant_id_unique UNIQUE (tenant_id, id),
   CONSTRAINT intents_policy_initial_status_consistent CHECK (
     (policy_allowed AND initial_status = 'AWAITING_APPROVAL')
     OR (NOT policy_allowed AND initial_status = 'POLICY_DENIED')
@@ -130,6 +157,86 @@ CREATE TABLE parimit.audit_events (
   CONSTRAINT audit_events_no_forks UNIQUE (intent_id, previous_hash)
 );
 
+CREATE TABLE parimit.envelope_signing_keys (
+  key_id text PRIMARY KEY CHECK (char_length(key_id) BETWEEN 1 AND 128),
+  public_jwk jsonb NOT NULL CHECK (jsonb_typeof(public_jwk) = 'object'),
+  created_at parimit.canonical_timestamp NOT NULL,
+  attestation_hmac text NOT NULL CHECK (attestation_hmac ~ '^[A-Za-z0-9_-]{43}$')
+);
+
+-- Mutable HMAC checkpoint over the complete semantic signing-key registry,
+-- sorted by key_id. It must be inserted with the empty registry and replaced
+-- in the same transaction as every signing-key insert. Deletion is forbidden.
+CREATE TABLE parimit.envelope_signing_key_registry_state (
+  name text PRIMARY KEY CHECK (name = 'envelope_signing_key_registry_state_v1'),
+  value text NOT NULL CHECK (value ~ '^[A-Za-z0-9_-]{43}$')
+);
+
+-- This is the PostgreSQL equivalent of SQLite service_metadata's
+-- receipt_integrity_root_v1 row. The value is the receipt-secret HMAC of the
+-- canonical {version, tenant_id, envelope_issuer, envelope_audience,
+-- envelope_maximum_lifetime_seconds, authentication_mode,
+-- identity_trust_domain_id, policy_configuration_digest} root payload. The
+-- fixed name permits exactly one database-bound trust root; alpha.3 does not
+-- support rotating it.
+CREATE TABLE parimit.service_integrity_roots (
+  name text PRIMARY KEY CHECK (name = 'receipt_integrity_root_v1'),
+  value text NOT NULL CHECK (value ~ '^[A-Za-z0-9_-]{43}$')
+);
+
+CREATE TABLE parimit.authorization_envelopes (
+  id uuid PRIMARY KEY,
+  intent_id uuid NOT NULL,
+  tenant_id text NOT NULL,
+  state_version bigint NOT NULL CHECK (state_version >= 1),
+  audience text NOT NULL CHECK (char_length(audience) BETWEEN 1 AND 512),
+  issuance_idempotency_key text NOT NULL
+    CHECK (
+      char_length(issuance_idempotency_key) BETWEEN 1 AND 128
+      AND issuance_idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:@/+\-]*$'
+    ),
+  key_id text NOT NULL REFERENCES parimit.envelope_signing_keys(key_id),
+  compact_jws text NOT NULL UNIQUE CHECK (octet_length(compact_jws) <= 65536),
+  claims_hash parimit.sha256_hex NOT NULL,
+  nonce_hash parimit.sha256_hex NOT NULL,
+  issued_at parimit.canonical_timestamp NOT NULL,
+  expires_at parimit.canonical_timestamp NOT NULL,
+  consumed_at parimit.canonical_timestamp,
+  consumed_by text
+    CHECK (
+      consumed_by IS NULL
+      OR (
+        char_length(consumed_by) BETWEEN 1 AND 128
+        AND consumed_by ~ '^[A-Za-z0-9][A-Za-z0-9._:@/+\-]*$'
+      )
+    ),
+  consumption_idempotency_key text
+    CHECK (
+      consumption_idempotency_key IS NULL
+      OR (
+        char_length(consumption_idempotency_key) BETWEEN 1 AND 128
+        AND consumption_idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:@/+\-]*$'
+      )
+    ),
+  CONSTRAINT authorization_envelope_scope_unique
+    UNIQUE (tenant_id, intent_id, state_version, audience),
+  CONSTRAINT authorization_envelope_nonce_unique UNIQUE (tenant_id, nonce_hash),
+  CONSTRAINT authorization_envelope_tenant_intent_fk
+    FOREIGN KEY (tenant_id, intent_id)
+    REFERENCES parimit.intents(tenant_id, id),
+  CONSTRAINT authorization_envelope_expiry_after_issue CHECK (expires_at > issued_at),
+  CONSTRAINT authorization_envelope_consumption_consistent CHECK (
+    (consumed_at IS NULL AND consumed_by IS NULL AND consumption_idempotency_key IS NULL)
+    OR (
+      consumed_at IS NOT NULL
+      AND consumed_by IS NOT NULL
+      AND consumption_idempotency_key IS NOT NULL
+      AND consumed_at >= issued_at
+      AND consumed_at < expires_at
+    )
+  )
+);
+
 CREATE INDEX intents_agent_created_idx
   ON parimit.intents (agent_id, created_at);
 CREATE INDEX intents_status_expiry_idx
@@ -140,6 +247,8 @@ CREATE INDEX observations_intent_sequence_idx
   ON parimit.observations (intent_id, sequence);
 CREATE INDEX audit_events_intent_sequence_idx
   ON parimit.audit_events (intent_id, sequence);
+CREATE INDEX authorization_envelopes_expiry_idx
+  ON parimit.authorization_envelopes (expires_at);
 
 CREATE FUNCTION parimit.reject_evidence_mutation()
 RETURNS trigger
@@ -163,6 +272,89 @@ CREATE TRIGGER audit_events_append_only
   BEFORE UPDATE OR DELETE ON parimit.audit_events
   FOR EACH ROW EXECUTE FUNCTION parimit.reject_evidence_mutation();
 
+CREATE TRIGGER envelope_signing_keys_append_only
+  BEFORE UPDATE OR DELETE ON parimit.envelope_signing_keys
+  FOR EACH ROW EXECUTE FUNCTION parimit.reject_evidence_mutation();
+
+CREATE TRIGGER envelope_signing_key_registry_state_no_delete
+  BEFORE DELETE ON parimit.envelope_signing_key_registry_state
+  FOR EACH ROW EXECUTE FUNCTION parimit.reject_evidence_mutation();
+
+CREATE TRIGGER service_integrity_roots_append_only
+  BEFORE UPDATE OR DELETE ON parimit.service_integrity_roots
+  FOR EACH ROW EXECUTE FUNCTION parimit.reject_evidence_mutation();
+
+CREATE FUNCTION parimit.protect_authorization_envelope()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.consumed_at IS NOT NULL
+      OR NEW.consumed_by IS NOT NULL
+      OR NEW.consumption_idempotency_key IS NOT NULL
+    THEN
+      RAISE EXCEPTION 'authorization envelopes must be inserted unconsumed'
+        USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'authorization envelopes are retained evidence; DELETE is forbidden'
+      USING ERRCODE = '55000';
+  END IF;
+
+  IF ROW(
+    NEW.id,
+    NEW.intent_id,
+    NEW.tenant_id,
+    NEW.state_version,
+    NEW.audience,
+    NEW.issuance_idempotency_key,
+    NEW.key_id,
+    NEW.compact_jws,
+    NEW.claims_hash,
+    NEW.nonce_hash,
+    NEW.issued_at,
+    NEW.expires_at
+  ) IS DISTINCT FROM ROW(
+    OLD.id,
+    OLD.intent_id,
+    OLD.tenant_id,
+    OLD.state_version,
+    OLD.audience,
+    OLD.issuance_idempotency_key,
+    OLD.key_id,
+    OLD.compact_jws,
+    OLD.claims_hash,
+    OLD.nonce_hash,
+    OLD.issued_at,
+    OLD.expires_at
+  ) THEN
+    RAISE EXCEPTION 'immutable authorization-envelope evidence cannot be changed'
+      USING ERRCODE = '55000';
+  END IF;
+
+  IF OLD.consumed_at IS NOT NULL
+    OR OLD.consumed_by IS NOT NULL
+    OR OLD.consumption_idempotency_key IS NOT NULL
+    OR NEW.consumed_at IS NULL
+    OR NEW.consumed_by IS NULL
+    OR NEW.consumption_idempotency_key IS NULL
+  THEN
+    RAISE EXCEPTION 'authorization-envelope consumption is a one-time transition'
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER authorization_envelopes_protected
+  BEFORE INSERT OR UPDATE OR DELETE ON parimit.authorization_envelopes
+  FOR EACH ROW EXECUTE FUNCTION parimit.protect_authorization_envelope();
+
 CREATE FUNCTION parimit.protect_intent()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -175,6 +367,7 @@ BEGIN
 
   IF ROW(
     NEW.id,
+    NEW.tenant_id,
     NEW.idempotency_key,
     NEW.request_fingerprint,
     NEW.agent_id,
@@ -194,6 +387,7 @@ BEGIN
     NEW.expires_at
   ) IS DISTINCT FROM ROW(
     OLD.id,
+    OLD.tenant_id,
     OLD.idempotency_key,
     OLD.request_fingerprint,
     OLD.agent_id,
@@ -216,11 +410,21 @@ BEGIN
       USING ERRCODE = '55000';
   END IF;
 
-  IF NEW.status <> OLD.status AND (
+  IF NEW.status = OLD.status THEN
+    IF OLD.status <> 'AWAITING_APPROVAL' THEN
+      RAISE EXCEPTION 'authorization state cannot advance without a valid transition from %', OLD.status
+        USING ERRCODE = '23514';
+    END IF;
+  ELSIF (
     OLD.status <> 'AWAITING_APPROVAL'
     OR NEW.status NOT IN ('AUTHORIZED_NO_DISPATCH', 'REJECTED', 'CANCELLED', 'EXPIRED')
   ) THEN
     RAISE EXCEPTION 'invalid intent status transition: % -> %', OLD.status, NEW.status
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF NEW.state_version <> OLD.state_version + 1 THEN
+    RAISE EXCEPTION 'authorization state version must increment exactly once'
       USING ERRCODE = '23514';
   END IF;
 
