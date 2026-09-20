@@ -1,0 +1,147 @@
+name: parimit-keycloak-pilot
+
+services:
+  keycloak:
+    # Keycloak 26.7.4 multi-architecture manifest, resolved from Quay on
+    # 2026-09-20. Update the version and digest together after review.
+    image: quay.io/keycloak/keycloak:26.7.4@sha256:82a77884f3af238beab1e7afd63b5f530e1b5c0590bd7aa60b40a40463e29b2c
+    command:
+      - start
+      - --import-realm
+      - --server-async-bootstrap=false
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: "${KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME:?set KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME in deploy/keycloak/.env.local}"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD:?set KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD in deploy/keycloak/.env.local}"
+      # dev-file is deliberately limited to this single-host, local technical
+      # pilot. It is not a supported production identity database.
+      KC_DB: dev-file
+      KC_HOSTNAME: https://localhost:8443
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HOSTNAME_STRICT: "true"
+      KC_HTTP_ENABLED: "false"
+      KC_HTTPS_KEY_STORE_FILE: /run/secrets/keycloak.p12
+      KC_HTTPS_KEY_STORE_PASSWORD: "${KEYCLOAK_HTTPS_KEYSTORE_PASSWORD:?set KEYCLOAK_HTTPS_KEYSTORE_PASSWORD}"
+      KC_HTTPS_KEY_STORE_TYPE: PKCS12
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "false"
+      KC_LOG_LEVEL: info
+      # These values replace placeholders in the one-time realm import. The
+      # generator uses JSON-safe base64url values; never put literal secrets
+      # in parimit-pilot-realm.json.
+      PARIMIT_AGENT_CLIENT_SECRET: "${PARIMIT_AGENT_CLIENT_SECRET:?set PARIMIT_AGENT_CLIENT_SECRET}"
+      PARIMIT_CONSUMER_CLIENT_SECRET: "${PARIMIT_CONSUMER_CLIENT_SECRET:?set PARIMIT_CONSUMER_CLIENT_SECRET}"
+      PARIMIT_REVIEWER_INITIAL_PASSWORD: "${PARIMIT_REVIEWER_INITIAL_PASSWORD:?set PARIMIT_REVIEWER_INITIAL_PASSWORD}"
+      PARIMIT_ADMIN_INITIAL_PASSWORD: "${PARIMIT_ADMIN_INITIAL_PASSWORD:?set PARIMIT_ADMIN_INITIAL_PASSWORD}"
+    ports:
+      - "127.0.0.1:8443:8443"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+      - ./parimit-pilot-realm.json:/opt/keycloak/data/import/parimit-pilot-realm.json:ro
+    secrets:
+      - source: keycloak_keystore
+        target: keycloak.p12
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 1g
+    stop_grace_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    networks:
+      - pilot-local
+
+  parimit:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: "parimit-keycloak-pilot:${PARIMIT_IMAGE_TAG:-local-unreleased}"
+    init: true
+    depends_on:
+      - keycloak
+    environment:
+      NODE_ENV: production
+      NODE_EXTRA_CA_CERTS: /run/secrets/local-ca.pem
+      PARIMIT_HOST: 0.0.0.0
+      PARIMIT_PORT: "8787"
+      PARIMIT_DB_PATH: /data/parimit.db
+      PARIMIT_AUTH_MODE: oidc
+      PARIMIT_DEMO_MODE: "false"
+      PARIMIT_RECEIPT_KEY: "${PARIMIT_RECEIPT_KEY:?set PARIMIT_RECEIPT_KEY}"
+      PARIMIT_TENANT_ID: "${PARIMIT_TENANT_ID:-parimit-pilot-local}"
+      PARIMIT_ENVELOPE_ISSUER: "${PARIMIT_ENVELOPE_ISSUER:-urn:parimit:pilot:local}"
+      PARIMIT_ENVELOPE_AUDIENCES: "${PARIMIT_ENVELOPE_AUDIENCES:-urn:parimit:consumer:pilot-local}"
+      PARIMIT_ENVELOPE_TTL_SECONDS: "${PARIMIT_ENVELOPE_TTL_SECONDS:-300}"
+      PARIMIT_ENVELOPE_SIGNING_KEY_ID: "${PARIMIT_ENVELOPE_SIGNING_KEY_ID:?set PARIMIT_ENVELOPE_SIGNING_KEY_ID}"
+      PARIMIT_ENVELOPE_PRIVATE_KEY_PEM_BASE64: "${PARIMIT_ENVELOPE_PRIVATE_KEY_PEM_BASE64:?set PARIMIT_ENVELOPE_PRIVATE_KEY_PEM_BASE64}"
+      # The public issuer is used in tokens acquired by a host-side client.
+      # Parimit reaches the same Keycloak instance over Compose DNS for JWKS.
+      PARIMIT_OIDC_ISSUER: https://localhost:8443/realms/parimit-pilot
+      PARIMIT_OIDC_AUDIENCE: parimit-pilot
+      PARIMIT_OIDC_JWKS_URI: https://keycloak:8443/realms/parimit-pilot/protocol/openid-connect/certs
+      PARIMIT_OIDC_ROLE_CLAIM: roles
+      PARIMIT_OIDC_ROLE_MAPPING: '{"parimit-pilot-agent":"agent","parimit-pilot-reviewer":"approver","parimit-pilot-consumer":"consumer","parimit-pilot-admin":"admin"}'
+      PARIMIT_OIDC_CLOCK_SKEW_SECONDS: "${PARIMIT_OIDC_CLOCK_SKEW_SECONDS:-30}"
+      PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS: "${PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS:-600}"
+      # Keep unset until the exact Keycloak access-token typ is verified and
+      # deliberately pinned. Parimit still accepts only signed JWTs here.
+      PARIMIT_OIDC_REQUIRED_TYP: ""
+      PARIMIT_PER_TX_LIMIT: "${PARIMIT_PER_TX_LIMIT:-100000}"
+      PARIMIT_DAILY_AGENT_LIMIT: "${PARIMIT_DAILY_AGENT_LIMIT:-500000}"
+      PARIMIT_DUAL_APPROVAL_THRESHOLD: "${PARIMIT_DUAL_APPROVAL_THRESHOLD:-50000}"
+      PARIMIT_INTENT_TTL_SECONDS: "${PARIMIT_INTENT_TTL_SECONDS:-1800}"
+      PARIMIT_MAX_EXPIRY_SECONDS: "${PARIMIT_MAX_EXPIRY_SECONDS:-86400}"
+      PARIMIT_ALLOWED_PAYEES: "${PARIMIT_ALLOWED_PAYEES:-merchant_pilot_001,merchant_pilot_002}"
+      PARIMIT_BLOCKED_PAYEES: "${PARIMIT_BLOCKED_PAYEES:-merchant_pilot_blocked}"
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - parimit-data:/data
+    # Mount only the CA certificate. Parimit must never receive Keycloak's TLS
+    # private key.
+    secrets:
+      - source: local_ca_certificate
+        target: local-ca.pem
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    stop_grace_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    networks:
+      - pilot-local
+
+networks:
+  pilot-local:
+    # Docker suppresses published ports for an internal-only network. Use a
+    # dedicated bridge so the browser and host-side acceptance runner can reach
+    # the two explicitly loopback-bound ports. This bridge is not an egress
+    # firewall; apply host/runtime egress policy separately where required.
+    driver: bridge
+
+volumes:
+  keycloak-data:
+  parimit-data:
+
+secrets:
+  local_ca_certificate:
+    file: ./runtime/tls/local-ca.pem
+  keycloak_keystore:
+    file: ./runtime/tls/keycloak.p12

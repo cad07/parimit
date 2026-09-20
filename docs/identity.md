@@ -185,6 +185,24 @@ Do not place its credential in prompts, source code, container images, logs, or
 the browser. The SDK accepts an access token at runtime but does not acquire or
 refresh one.
 
+## Local Keycloak reference profile
+
+[`../deploy/keycloak/README.md`](../deploy/keycloak/README.md) provides a
+reproducible, local-only OIDC profile for testing this contract. Its public
+issuer is exactly
+`https://localhost:8443/realms/parimit-pilot`, while the Parimit container
+retrieves the same realm's JWKS over the internal `keycloak` network name. The
+certificate covers both names and Parimit trusts only the generated local CA;
+changing either URL changes the trust domain and requires a fresh pilot state.
+
+The profile maps dedicated Keycloak resource-client roles into the top-level `roles`
+claim and adds the exact `parimit-pilot` access-token audience. The agent and
+consumer are service-account workloads. Reviewer and admin are separate human
+accounts that use the OIDC Device Authorization Grant, forced password change,
+and TOTP enrollment. Direct password grants are disabled. A CI workload smoke
+may test only agent and consumer authentication; it cannot stand in for the
+two interactive human decisions required by the acceptance runner.
+
 ## Proxy and logging requirements
 
 - Terminate HTTPS before the loopback-only Parimit upstream and redirect or

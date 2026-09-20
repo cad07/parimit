@@ -1,0 +1,117 @@
+name: Keycloak pilot guardrails
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/keycloak/**"
+      - ".dockerignore"
+      - "Dockerfile"
+      - "package.json"
+      - "src/**"
+      - "README.md"
+      - "deploy/README.md"
+      - "docs/identity.md"
+      - "docs/pilot-guide.md"
+      - "tests/keycloak-pilot-config.test.ts"
+      - "scripts/*keycloak-pilot*"
+      - "docs/decisions/0003-keycloak-local-pilot.md"
+      - "docs/threat-model.md"
+      - ".github/workflows/keycloak-pilot.yml"
+  pull_request:
+    paths:
+      - "deploy/keycloak/**"
+      - ".dockerignore"
+      - "Dockerfile"
+      - "package.json"
+      - "src/**"
+      - "README.md"
+      - "deploy/README.md"
+      - "docs/identity.md"
+      - "docs/pilot-guide.md"
+      - "tests/keycloak-pilot-config.test.ts"
+      - "scripts/*keycloak-pilot*"
+      - "docs/decisions/0003-keycloak-local-pilot.md"
+      - "docs/threat-model.md"
+      - ".github/workflows/keycloak-pilot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keycloak-pilot-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-contract:
+    name: Static contract and workload-only smoke
+    # Ubuntu 24.04 currently carries Docker 28.0.4, which predates the
+    # loopback-publication security fixes required by the pilot runner.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Verify Keycloak pilot static contract
+        run: node --experimental-strip-types --test tests/keycloak-pilot-config.test.ts
+
+      - name: Run core, SDK, and safety-boundary checks
+        run: npm run check
+
+      - name: Generate ephemeral CI-only pilot material
+        run: node --experimental-strip-types scripts/bootstrap-keycloak-pilot.ts
+
+      - name: Mask ephemeral pilot credentials
+        shell: bash
+        run: |
+          while IFS='=' read -r name value; do
+            case "$name" in
+              *PASSWORD|*SECRET|PARIMIT_RECEIPT_KEY|PARIMIT_ENVELOPE_PRIVATE_KEY_PEM_BASE64)
+                if [[ -n "$value" ]]; then
+                  echo "::add-mask::$value"
+                fi
+                ;;
+            esac
+          done < deploy/keycloak/.env.local
+
+      - name: Run non-human agent and consumer workload smoke
+        run: node --experimental-strip-types scripts/run-keycloak-pilot.ts --workload-smoke
+
+      - name: Capture failed container diagnostics
+        if: ${{ failure() && hashFiles('deploy/keycloak/.env.local') != '' }}
+        run: |
+          docker compose \
+            --project-name parimit-keycloak-pilot \
+            --env-file deploy/keycloak/.env.local \
+            -f deploy/keycloak/docker-compose.yml \
+            ps --all
+          docker compose \
+            --project-name parimit-keycloak-pilot \
+            --env-file deploy/keycloak/.env.local \
+            -f deploy/keycloak/docker-compose.yml \
+            logs --no-color --tail 300 keycloak parimit
+
+      - name: Remove ephemeral CI containers and volumes
+        if: ${{ always() && hashFiles('deploy/keycloak/.env.local') != '' }}
+        run: |
+          docker compose \
+            --project-name parimit-keycloak-pilot \
+            --env-file deploy/keycloak/.env.local \
+            -f deploy/keycloak/docker-compose.yml \
+            down --volumes --remove-orphans
+
+      - name: Record automation boundary
+        if: always()
+        run: |
+          echo "### Keycloak pilot verification boundary" >> "$GITHUB_STEP_SUMMARY"
+          echo "This workflow performs static and repository checks plus agent/consumer workload authentication smoke." >> "$GITHUB_STEP_SUMMARY"
+          echo "It does not acquire reviewer or administrator tokens, decide a proposal, run the interactive device flow, or certify human pilot acceptance." >> "$GITHUB_STEP_SUMMARY"

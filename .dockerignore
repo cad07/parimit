@@ -3,6 +3,8 @@
 .env*
 !.env.example
 data/*
+deploy/keycloak/.env.local
+deploy/keycloak/runtime/
 docs
 examples
 tests

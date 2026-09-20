@@ -1,0 +1,268 @@
+{
+  "realm": "parimit-pilot",
+  "displayName": "Parimit local OIDC pilot",
+  "enabled": true,
+  "sslRequired": "all",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "rememberMe": false,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": false,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "maxDeltaTimeSeconds": 43200,
+  "defaultSignatureAlgorithm": "RS256",
+  "accessTokenLifespan": 300,
+  "accessTokenLifespanForImplicitFlow": 0,
+  "ssoSessionIdleTimeout": 900,
+  "ssoSessionMaxLifespan": 3600,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "oauth2DeviceCodeLifespan": 300,
+  "oauth2DevicePollingInterval": 5,
+  "roles": {
+    "client": {
+      "parimit-pilot": [
+        {
+          "name": "parimit-pilot-agent",
+          "description": "Workload identity that may propose and inspect only its own synthetic work."
+        },
+        {
+          "name": "parimit-pilot-reviewer",
+          "description": "Human reviewer identity that may decide proposals and issue evidence envelopes."
+        },
+        {
+          "name": "parimit-pilot-consumer",
+          "description": "Workload identity that may verify and consume evidence for the single pilot audience."
+        },
+        {
+          "name": "parimit-pilot-admin",
+          "description": "Human pilot operator identity; distinct from the Keycloak bootstrap administrator."
+        }
+      ]
+    }
+  },
+  "clientScopes": [
+    {
+      "name": "parimit-api-access",
+      "description": "Exact Parimit API audience and top-level role claims.",
+      "protocol": "openid-connect",
+      "attributes": {
+        "display.on.consent.screen": "false",
+        "include.in.token.scope": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "parimit top-level roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "usermodel.clientRoleMapping.clientId": "parimit-pilot",
+            "usermodel.clientRoleMapping.rolePrefix": "",
+            "multivalued": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "parimit exact audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "parimit-pilot",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "parimit preferred username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "clientScopeMappings": {
+    "parimit-pilot": [
+      {
+        "clientScope": "parimit-api-access",
+        "roles": [
+          "parimit-pilot-agent",
+          "parimit-pilot-reviewer",
+          "parimit-pilot-consumer",
+          "parimit-pilot-admin"
+        ]
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "parimit-pilot",
+      "name": "Parimit pilot API audience",
+      "description": "Resource-only audience. It cannot initiate a login or obtain a token.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "fullScopeAllowed": false,
+      "defaultClientScopes": [],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "parimit-agent-workload",
+      "name": "Parimit synthetic agent workload",
+      "description": "Client-credentials identity with only the agent role.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${PARIMIT_AGENT_CLIENT_SECRET}",
+      "bearerOnly": false,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false,
+      "fullScopeAllowed": false,
+      "defaultClientScopes": [
+        "parimit-api-access"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "parimit-consumer-workload",
+      "name": "Parimit evidence consumer workload",
+      "description": "Client-credentials identity with only the consumer role.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${PARIMIT_CONSUMER_CLIENT_SECRET}",
+      "bearerOnly": false,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false,
+      "fullScopeAllowed": false,
+      "defaultClientScopes": [
+        "parimit-api-access"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "parimit-human-cli",
+      "name": "Parimit human pilot device client",
+      "description": "Public device-flow client for distinct reviewer and pilot-admin accounts.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "bearerOnly": false,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "fullScopeAllowed": false,
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "true"
+      },
+      "defaultClientScopes": [
+        "parimit-api-access"
+      ],
+      "optionalClientScopes": []
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-parimit-agent-workload",
+      "enabled": true,
+      "serviceAccountClientId": "parimit-agent-workload",
+      "clientRoles": {
+        "parimit-pilot": [
+          "parimit-pilot-agent"
+        ]
+      }
+    },
+    {
+      "username": "service-account-parimit-consumer-workload",
+      "enabled": true,
+      "serviceAccountClientId": "parimit-consumer-workload",
+      "clientRoles": {
+        "parimit-pilot": [
+          "parimit-pilot-consumer"
+        ]
+      }
+    },
+    {
+      "username": "pilot-reviewer",
+      "enabled": true,
+      "emailVerified": false,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${PARIMIT_REVIEWER_INITIAL_PASSWORD}",
+          "temporary": true
+        }
+      ],
+      "requiredActions": [
+        "UPDATE_PASSWORD",
+        "CONFIGURE_TOTP"
+      ],
+      "clientRoles": {
+        "parimit-pilot": [
+          "parimit-pilot-reviewer"
+        ]
+      }
+    },
+    {
+      "username": "pilot-admin",
+      "enabled": true,
+      "emailVerified": false,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${PARIMIT_ADMIN_INITIAL_PASSWORD}",
+          "temporary": true
+        }
+      ],
+      "requiredActions": [
+        "UPDATE_PASSWORD",
+        "CONFIGURE_TOTP"
+      ],
+      "clientRoles": {
+        "parimit-pilot": [
+          "parimit-pilot-admin"
+        ]
+      }
+    }
+  ]
+}
