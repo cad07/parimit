@@ -1,15 +1,16 @@
 openapi: 3.1.0
 info:
   title: Parimit API
-  version: 0.1.0-alpha.2
-  summary: Proposal-only payment governance and human-review pilot API
+  version: 0.1.0-alpha.3
+  summary: Proposal-only payment governance, human review, and signed evidence envelopes
   description: |
     Parimit accepts payment proposals, evaluates deterministic policy,
-    records human decisions, and produces mock observations. It has no
-    live payment connector and cannot move money.
+    records human decisions, produces signed evidence-only authorization
+    envelopes, and supports mock observations. It has no live payment connector
+    and cannot move money.
 
     External pilots use signed OIDC bearer tokens and map an immutable subject
-    to exactly one of `agent`, `approver`, or `admin`. The
+    to exactly one of `agent`, `approver`, `consumer`, or `admin`. The
     `x-parimit-actor`/`x-parimit-role` alternative is restricted to an explicit
     loopback demo and is not production authentication.
     `AUTHORIZED_NO_DISPATCH` means an exact proposal received the required
@@ -29,8 +30,23 @@ tags:
   - name: Proposals
   - name: Human review
   - name: Audit
+  - name: Evidence envelopes
   - name: Mock simulation
 paths:
+  /.well-known/jwks.json:
+    get:
+      security: []
+      tags: [Evidence envelopes]
+      operationId: getEvidenceEnvelopeKeys
+      summary: Return public Ed25519 verification keys
+      description: Never contains private key material.
+      responses:
+        "200":
+          description: JSON Web Key Set for evidence-envelope verification
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeJwks"
   /v1/safety:
     get:
       security: []
@@ -316,6 +332,129 @@ paths:
           $ref: "#/components/responses/IntegrityError"
         "503":
           $ref: "#/components/responses/IdentityProviderUnavailable"
+  /v1/intents/{intentId}/evidence-envelopes:
+    parameters:
+      - $ref: "#/components/parameters/IntentId"
+    post:
+      tags: [Evidence envelopes]
+      operationId: issueEvidenceEnvelope
+      summary: Issue signed, non-dispatchable approval evidence
+      description: |
+        `approver` or `admin` only. Requires a tenant-bound v3 proposal in
+        `AUTHORIZED_NO_DISPATCH` state. The compact EdDSA JWS is evidence of
+        review only: its signed capability fields explicitly prohibit payment
+        dispatch, provider instructions, execution authority, and value movement.
+        Only one envelope may exist for an intent state and audience. Expiry
+        requires a fresh proposal and human review; it is not renewed in place.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvidenceEnvelopeIssueInput"
+      responses:
+        "201":
+          description: New evidence envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvidenceEnvelopeResponse"
+        "200":
+          description: Byte-identical idempotent replay
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvidenceEnvelopeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/AuthenticationRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "500":
+          $ref: "#/components/responses/IntegrityError"
+        "503":
+          $ref: "#/components/responses/IdentityProviderUnavailable"
+  /v1/evidence-envelopes/verify:
+    post:
+      tags: [Evidence envelopes]
+      operationId: verifyEvidenceEnvelope
+      summary: Verify signature, schema, time, audience, issuance, and intent binding
+      description: >-
+        Read-only. Verification does not consume the envelope and therefore is
+        not replay prevention.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvidenceEnvelopePresentation"
+      responses:
+        "200":
+          description: Verification report; invalid artifacts also return 200 with `valid:false`
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/EvidenceEnvelopeVerification"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/AuthenticationRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "503":
+          $ref: "#/components/responses/IdentityProviderUnavailable"
+  /v1/evidence-envelopes/consume:
+    post:
+      tags: [Evidence envelopes]
+      operationId: consumeEvidenceEnvelope
+      summary: Atomically record one-time acceptance of an evidence envelope
+      description: |
+        `consumer` or `admin` only. This records evidence consumption and an
+        audit event; it does not send, execute, settle, or otherwise move money.
+        Replay protection is authoritative only within this configured Parimit
+        persistence boundary. Offline recipients need their own durable ledger.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvidenceEnvelopeConsumeInput"
+      responses:
+        "200":
+          description: Consumed envelope state or same-consumer idempotent replay
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvidenceEnvelopeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/AuthenticationRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "500":
+          $ref: "#/components/responses/IntegrityError"
+        "503":
+          $ref: "#/components/responses/IdentityProviderUnavailable"
   /v1/intents/{intentId}/audit:
     parameters:
       - $ref: "#/components/parameters/IntentId"
@@ -446,7 +585,7 @@ components:
       type: apiKey
       in: header
       name: x-parimit-role
-      description: Spoofable demo role (`agent`, `approver`, or `admin`).
+      description: Spoofable demo role (`agent`, `approver`, `consumer`, or `admin`).
   parameters:
     IntentId:
       name: intentId
@@ -511,6 +650,11 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    CanonicalTimestamp:
+      type: string
+      format: date-time
+      pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+      description: Exact UTC millisecond timestamp emitted by JavaScript Date.toISOString().
     IdentityResponse:
       type: object
       required: [data]
@@ -526,7 +670,7 @@ components:
               maxLength: 128
             actor_role:
               type: string
-              enum: [agent, approver, admin]
+              enum: [agent, approver, consumer, admin]
             authentication_method:
               type: string
               enum: [oidc, local_demo_headers]
@@ -610,6 +754,7 @@ components:
         - allowed
         - reasons
         - rules_version
+        - config_digest
         - required_approvals
         - current_daily_exposure_minor
         - projected_daily_exposure_minor
@@ -622,6 +767,10 @@ components:
             type: string
         rules_version:
           type: string
+        config_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: SHA-256 of the canonical deployment policy configuration.
         required_approvals:
           type: integer
           enum: [1, 2]
@@ -646,8 +795,7 @@ components:
         intent_hash:
           type: string
         created_at:
-          type: string
-          format: date-time
+          $ref: "#/components/schemas/CanonicalTimestamp"
         receipt_hmac:
           type: string
     ApprovalReceipt:
@@ -662,8 +810,7 @@ components:
         intent_hash:
           type: string
         fully_approved_at:
-          type: string
-          format: date-time
+          $ref: "#/components/schemas/CanonicalTimestamp"
         approvals:
           type: array
           items:
@@ -683,8 +830,7 @@ components:
           minLength: 1
           maxLength: 200
         observed_at:
-          type: string
-          format: date-time
+          $ref: "#/components/schemas/CanonicalTimestamp"
         source:
           const: DEMO_MOCK
         retry_permitted:
@@ -694,6 +840,8 @@ components:
       required:
         - id
         - intent_version
+        - tenant_id
+        - state_version
         - initial_status
         - idempotency_key
         - requested_by
@@ -714,15 +862,23 @@ components:
           format: uuid
         intent_version:
           type: string
-          enum: [parimit-payment-intent-v1, parimit-payment-intent-v2]
+          enum: [parimit-payment-intent-v1, parimit-payment-intent-v2, parimit-payment-intent-v3]
           description: >-
-            Version of the canonical payload covered by intent_hash. New intents use v2.
+            Version of the canonical payload covered by intent_hash. New intents use v3,
+            which adds tenant binding.
             Migrated v1 rows are archival/read-only, and v1 authorization state is rejected
             because its digest did not bind the policy threshold.
+        tenant_id:
+          type: string
+          description: Deployment-trusted tenant identifier covered by the v3 intent digest.
+        state_version:
+          type: integer
+          minimum: 1
+          description: Monotonic authorization-state revision; mock observations do not increment it.
         initial_status:
           type: string
           enum: [POLICY_DENIED, AWAITING_APPROVAL]
-          description: Immutable creation state covered by the v2 intent digest.
+          description: Immutable creation state covered by the v2/v3 intent digest.
         idempotency_key:
           type: string
         requested_by:
@@ -767,14 +923,16 @@ components:
                 type: string
             rules_version:
               type: string
+            config_digest:
+              type: string
+              pattern: "^[0-9a-f]{64}$"
+              description: Present and integrity-bound on v3 intents.
         intent_hash:
           type: string
         created_at:
-          type: string
-          format: date-time
+          $ref: "#/components/schemas/CanonicalTimestamp"
         expires_at:
-          type: string
-          format: date-time
+          $ref: "#/components/schemas/CanonicalTimestamp"
         observation:
           $ref: "#/components/schemas/Observation"
         approvals:
@@ -785,6 +943,459 @@ components:
           $ref: "#/components/schemas/ApprovalReceipt"
         idempotent_replay:
           type: boolean
+    EvidenceEnvelopeIssueInput:
+      type: object
+      additionalProperties: false
+      required: [audience, idempotency_key]
+      properties:
+        audience:
+          type: string
+          format: uri
+          description: Exact relying-party trust URI allowlisted by the deployment.
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:@/+\\-]*$"
+        expires_in_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          description: Cannot exceed the deployment maximum or the proposal deadline.
+    EvidenceEnvelopePresentation:
+      type: object
+      additionalProperties: false
+      required: [compact_jws, audience]
+      properties:
+        compact_jws:
+          type: string
+          minLength: 1
+          maxLength: 65536
+        audience:
+          type: string
+          format: uri
+    EvidenceEnvelopeConsumeInput:
+      type: object
+      additionalProperties: false
+      required: [compact_jws, audience, idempotency_key]
+      properties:
+        compact_jws:
+          type: string
+          minLength: 1
+          maxLength: 65536
+        audience:
+          type: string
+          format: uri
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:@/+\\-]*$"
+    AuthorizationEnvelopeClaims:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - iss
+        - sub
+        - aud
+        - jti
+        - iat
+        - nbf
+        - exp
+        - issued_at
+        - tenant_id
+        - identity_assurance
+        - intent
+        - policy_digest
+        - decision
+        - replay
+        - source_audit
+        - capability
+        - notice
+      properties:
+        version:
+          const: parimit-authorization-envelope-v1
+        iss:
+          type: string
+          format: uri
+        sub:
+          type: string
+          pattern: "^urn:parimit:intent:"
+        aud:
+          type: string
+          format: uri
+        jti:
+          type: string
+          format: uuid
+        iat:
+          type: integer
+        nbf:
+          type: integer
+        exp:
+          type: integer
+        issued_at:
+          $ref: "#/components/schemas/CanonicalTimestamp"
+          description: >-
+            Exact millisecond issuance timestamp. Integer `iat` and `nbf` name
+            its containing UTC second; use this field for evidence chronology.
+        tenant_id:
+          type: string
+        identity_assurance:
+          type: object
+          additionalProperties: false
+          required: [authentication_method, cryptographically_verified, trust_domain_id]
+          oneOf:
+            - properties:
+                authentication_method:
+                  const: oidc
+                cryptographically_verified:
+                  const: true
+                trust_domain_id:
+                  pattern: "^sha256:[0-9a-f]{64}$"
+            - properties:
+                authentication_method:
+                  const: local_demo_headers
+                cryptographically_verified:
+                  const: false
+                trust_domain_id:
+                  const: urn:parimit:identity-trust:local-demo-headers-v1
+          properties:
+            authentication_method:
+              type: string
+              enum: [oidc, local_demo_headers]
+            cryptographically_verified:
+              type: boolean
+            trust_domain_id:
+              type: string
+          description: >-
+            `cryptographically_verified` is true only for the OIDC mode. The
+            trust-domain identifier binds the exact OIDC verifier configuration;
+            local demo-header evidence uses the fixed lower-assurance URN.
+        intent:
+          type: object
+          additionalProperties: false
+          required: [snapshot, digest]
+          properties:
+            snapshot:
+              type: object
+              additionalProperties: false
+              required:
+                - version
+                - id
+                - tenant_id
+                - idempotency_key
+                - requested_by
+                - on_behalf_of
+                - amount
+                - payee_reference
+                - purpose
+                - initial_status
+                - policy
+                - created_at
+                - expires_at
+              properties:
+                version:
+                  const: parimit-payment-intent-v3
+                id:
+                  type: string
+                  format: uuid
+                tenant_id:
+                  type: string
+                idempotency_key:
+                  type: string
+                requested_by:
+                  type: object
+                  additionalProperties: false
+                  required: [type, id]
+                  properties:
+                    type:
+                      const: agent
+                    id:
+                      type: string
+                on_behalf_of:
+                  type: [string, "null"]
+                amount:
+                  type: object
+                  additionalProperties: false
+                  required: [currency, minor]
+                  properties:
+                    currency:
+                      const: INR
+                    minor:
+                      type: string
+                payee_reference:
+                  type: string
+                purpose:
+                  type: string
+                  description: Signed plaintext; compact JWS provides integrity, not confidentiality.
+                initial_status:
+                  const: AWAITING_APPROVAL
+                policy:
+                  type: object
+                  additionalProperties: false
+                  required: [allowed, reasons, rules_version, config_digest, required_approvals]
+                  properties:
+                    allowed:
+                      const: true
+                    reasons:
+                      type: array
+                      items:
+                        type: string
+                    rules_version:
+                      type: string
+                    config_digest:
+                      type: string
+                      pattern: "^[0-9a-f]{64}$"
+                    required_approvals:
+                      type: integer
+                      enum: [1, 2]
+                created_at:
+                  $ref: "#/components/schemas/CanonicalTimestamp"
+                expires_at:
+                  $ref: "#/components/schemas/CanonicalTimestamp"
+            digest:
+              $ref: "#/components/schemas/Sha256Digest"
+        policy_digest:
+          $ref: "#/components/schemas/Sha256Digest"
+        decision:
+          type: object
+          additionalProperties: false
+          required:
+            - state
+            - authorization_state_version
+            - required_approvals
+            - fully_approved_at
+            - approval_set_digest
+            - approvals
+          properties:
+            state:
+              const: AUTHORIZED_NO_DISPATCH
+            authorization_state_version:
+              type: integer
+              minimum: 2
+            required_approvals:
+              type: integer
+              enum: [1, 2]
+            fully_approved_at:
+              $ref: "#/components/schemas/CanonicalTimestamp"
+            approval_set_digest:
+              $ref: "#/components/schemas/Sha256Digest"
+            approvals:
+              type: array
+              minItems: 1
+              maxItems: 2
+              items:
+                type: object
+                additionalProperties: false
+                required: [subject, role, decision, intent_hash, decided_at, record_digest]
+                properties:
+                  subject:
+                    type: string
+                  role:
+                    type: string
+                    enum: [approver, admin]
+                  decision:
+                    const: APPROVE
+                  intent_hash:
+                    type: string
+                    pattern: "^[0-9a-f]{64}$"
+                  decided_at:
+                    $ref: "#/components/schemas/CanonicalTimestamp"
+                  record_digest:
+                    type: string
+                    pattern: "^[0-9a-f]{64}$"
+        replay:
+          type: object
+          additionalProperties: false
+          required: [nonce, use_limit]
+          properties:
+            nonce:
+              type: string
+              pattern: "^[A-Za-z0-9_-]{43}$"
+            use_limit:
+              const: 1
+        source_audit:
+          type: object
+          additionalProperties: false
+          required: [event_count, chain_tip]
+          properties:
+            event_count:
+              type: integer
+              minimum: 1
+            chain_tip:
+              type: string
+              pattern: "^[0-9a-f]{64}$"
+        capability:
+          type: object
+          additionalProperties: false
+          required:
+            - kind
+            - payment_dispatch_authorized
+            - execution_authorized
+            - provider_instruction
+            - moves_money
+          properties:
+            kind:
+              const: EVIDENCE_ONLY
+            payment_dispatch_authorized:
+              const: false
+            execution_authorized:
+              const: false
+            provider_instruction:
+              const: false
+            moves_money:
+              const: false
+        notice:
+          type: string
+    Sha256Digest:
+      type: object
+      additionalProperties: false
+      required: [alg, value]
+      properties:
+        alg:
+          const: sha-256
+        value:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+    EvidenceEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - compact_jws
+        - claims
+        - signature
+        - consumption
+        - execution_authorized
+        - moves_money
+        - notice
+      properties:
+        compact_jws:
+          type: string
+        claims:
+          $ref: "#/components/schemas/AuthorizationEnvelopeClaims"
+        signature:
+          type: object
+          additionalProperties: false
+          required: [algorithm, key_id, jwks_uri]
+          properties:
+            algorithm:
+              const: EdDSA
+            key_id:
+              type: string
+            jwks_uri:
+              const: /.well-known/jwks.json
+        consumption:
+          $ref: "#/components/schemas/EvidenceEnvelopeConsumption"
+        execution_authorized:
+          const: false
+        moves_money:
+          const: false
+        notice:
+          type: string
+        idempotent_replay:
+          type: boolean
+    EvidenceEnvelopeConsumption:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [state]
+          properties:
+            state:
+              const: UNCONSUMED
+        - type: object
+          additionalProperties: false
+          required: [state, consumed_at, consumed_by]
+          properties:
+            state:
+              const: CONSUMED
+            consumed_at:
+              $ref: "#/components/schemas/CanonicalTimestamp"
+            consumed_by:
+              type: string
+              minLength: 1
+              maxLength: 128
+    EnvelopePublicJwk:
+      type: object
+      additionalProperties: false
+      required: [kty, crv, x, use, key_ops, alg, kid]
+      properties:
+        kty:
+          const: OKP
+        crv:
+          const: Ed25519
+        x:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{43}$"
+        use:
+          const: sig
+        key_ops:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            const: verify
+        alg:
+          const: EdDSA
+        kid:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:@/+\\-]*$"
+    EnvelopeJwks:
+      type: object
+      additionalProperties: false
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EnvelopePublicJwk"
+    EvidenceEnvelopeVerification:
+      type: object
+      additionalProperties: false
+      required:
+        - valid
+        - signature_valid
+        - claims_valid
+        - time_valid
+        - locally_issued
+        - intent_binding_valid
+        - consumption
+        - failures
+      properties:
+        valid:
+          type: boolean
+        signature_valid:
+          type: boolean
+        claims_valid:
+          type: boolean
+        time_valid:
+          type: boolean
+        locally_issued:
+          type: boolean
+        intent_binding_valid:
+          type: boolean
+        consumption:
+          oneOf:
+            - $ref: "#/components/schemas/EvidenceEnvelopeConsumption"
+            - type: "null"
+        failures:
+          type: array
+          items:
+            type: string
+        claims:
+          $ref: "#/components/schemas/AuthorizationEnvelopeClaims"
+    EvidenceEnvelopeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/EvidenceEnvelope"
+        warning:
+          type: string
+          description: Present only when spoofable loopback demo headers authenticated the request.
     AuditEvent:
       type: object
       required: [sequence, intent_id, event_type, actor_id, payload, occurred_at, previous_hash, event_hash]
@@ -800,8 +1411,7 @@ components:
           type: string
         payload: {}
         occurred_at:
-          type: string
-          format: date-time
+          $ref: "#/components/schemas/CanonicalTimestamp"
         previous_hash:
           type: string
         event_hash:

@@ -1,0 +1,52 @@
+{
+  "oidc": {
+    "input": {
+      "issuer": "https://id.example.test/tenant/",
+      "audiences": ["parimit-z", "parimit-a"],
+      "jwksUri": "https://id.example.test/tenant/jwks.json",
+      "roleClaim": "roles",
+      "roleMapping": {
+        "reviewer": "approver",
+        "agent": "agent",
+        "consumer": "consumer"
+      },
+      "allowedAlgorithms": ["RS256"],
+      "requiredTokenType": "at+jwt",
+      "clockSkewSeconds": 60,
+      "maxTokenLifetimeSeconds": 3600
+    },
+    "preimage": {
+      "version": "parimit-oidc-identity-trust-v1",
+      "issuer": "https://id.example.test/tenant/",
+      "audiences": ["parimit-a", "parimit-z"],
+      "jwks_uri": "https://id.example.test/tenant/jwks.json",
+      "role_claim": "roles",
+      "role_mapping": {
+        "reviewer": "approver",
+        "agent": "agent",
+        "consumer": "consumer"
+      },
+      "allowed_algorithms": ["RS256"],
+      "required_token_type": "at+jwt",
+      "clock_skew_seconds": 60,
+      "max_token_lifetime_seconds": 3600
+    },
+    "canonical_preimage": "{\"allowed_algorithms\":[\"RS256\"],\"audiences\":[\"parimit-a\",\"parimit-z\"],\"clock_skew_seconds\":60,\"issuer\":\"https://id.example.test/tenant/\",\"jwks_uri\":\"https://id.example.test/tenant/jwks.json\",\"max_token_lifetime_seconds\":3600,\"required_token_type\":\"at+jwt\",\"role_claim\":\"roles\",\"role_mapping\":{\"agent\":\"agent\",\"consumer\":\"consumer\",\"reviewer\":\"approver\"},\"version\":\"parimit-oidc-identity-trust-v1\"}",
+    "digest": "sha256:38ff3261c122af68396e7cca82d1039e343b692207fe86f097984c1a0fbcff69"
+  },
+  "policy": {
+    "preimage": {
+      "version": "parimit-policy-configuration-v1",
+      "rules_version": "parimit-policy-vector-v1",
+      "per_transaction_limit_minor": "100000",
+      "daily_agent_limit_minor": "500000",
+      "dual_approval_threshold_minor": "50000",
+      "default_expiry_seconds": 1800,
+      "maximum_expiry_seconds": 86400,
+      "blocked_payees": ["merchant_blocked_a", "merchant_blocked_z"],
+      "allowed_payees": ["merchant_allowed_a", "merchant_allowed_z"]
+    },
+    "canonical_preimage": "{\"allowed_payees\":[\"merchant_allowed_a\",\"merchant_allowed_z\"],\"blocked_payees\":[\"merchant_blocked_a\",\"merchant_blocked_z\"],\"daily_agent_limit_minor\":\"500000\",\"default_expiry_seconds\":1800,\"dual_approval_threshold_minor\":\"50000\",\"maximum_expiry_seconds\":86400,\"per_transaction_limit_minor\":\"100000\",\"rules_version\":\"parimit-policy-vector-v1\",\"version\":\"parimit-policy-configuration-v1\"}",
+    "digest": "bf6edc0533c42a41ec82e5d6dabe7d9aea3e9e752839e6c48957fbe17b6a86fb"
+  }
+}

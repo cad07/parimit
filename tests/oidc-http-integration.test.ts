@@ -20,15 +20,17 @@ function encode(value: unknown): string {
 function jsonWebToken(
   privateKey: KeyObject,
   audience: string,
+  role = "pilot-agent",
+  subject = "integration-agent",
 ): string {
   const header = encode({ alg: "RS256", kid: "integration-key", typ: "at+jwt" });
   const payload = encode({
     iss: ISSUER,
     aud: audience,
-    sub: "integration-agent",
+    sub: subject,
     exp: NOW_SECONDS + 300,
     iat: NOW_SECONDS,
-    roles: ["pilot-agent"],
+    roles: [role],
   });
   const input = `${header}.${payload}`;
   const signature = sign("RSA-SHA256", Buffer.from(input, "ascii"), privateKey);
@@ -41,6 +43,10 @@ async function body(response: Response): Promise<Record<string, unknown>> {
 
 test("environment OIDC verifier and HTTP authorization compose end to end", async (t) => {
   const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2_048 });
+  const envelopePrivateKeyPem = generateKeyPairSync("ed25519").privateKey.export({
+    format: "pem",
+    type: "pkcs8",
+  }) as string;
   const jwk = {
     ...(publicKey.export({ format: "jwk" }) as Record<string, unknown>),
     kid: "integration-key",
@@ -57,10 +63,20 @@ test("environment OIDC verifier and HTTP authorization compose end to end", asyn
     PARIMIT_OIDC_AUDIENCE: AUDIENCE,
     PARIMIT_OIDC_JWKS_URI: JWKS_URI,
     PARIMIT_OIDC_ROLE_CLAIM: "roles",
-    PARIMIT_OIDC_ROLE_MAPPING: JSON.stringify({ "pilot-agent": "agent" }),
+    PARIMIT_OIDC_ROLE_MAPPING: JSON.stringify({
+      "pilot-agent": "agent",
+      "pilot-reviewer": "approver",
+    }),
     PARIMIT_OIDC_CLOCK_SKEW_SECONDS: "0",
     PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS: "600",
     PARIMIT_OIDC_REQUIRED_TYP: "at+jwt",
+    PARIMIT_TENANT_ID: "integration-tenant",
+    PARIMIT_ENVELOPE_ISSUER: "urn:parimit:integration:issuer",
+    PARIMIT_ENVELOPE_AUDIENCES: "urn:parimit:integration:consumer",
+    PARIMIT_ENVELOPE_PRIVATE_KEY_PEM_BASE64: Buffer.from(
+      envelopePrivateKeyPem,
+      "utf8",
+    ).toString("base64"),
   };
   const identityProvider = createIdentityProviderFromEnvironment(environment, {
     clock: () => new Date(NOW_SECONDS * 1_000),
@@ -72,7 +88,7 @@ test("environment OIDC verifier and HTTP authorization compose end to end", asyn
       });
     }) as typeof globalThis.fetch,
   });
-  const service = createServiceFromEnvironment(environment);
+  const service = createServiceFromEnvironment(environment, identityProvider);
   const server = createServer(createHttpHandler(service, { identityProvider }));
   t.after(async () => {
     if (server.listening) {
@@ -87,7 +103,11 @@ test("environment OIDC verifier and HTTP authorization compose end to end", asyn
   const safetyResponse = await fetch(`${baseUrl}/v1/safety`);
   assert.equal(safetyResponse.status, 200);
   const safety = (await body(safetyResponse)).data as Record<string, unknown>;
-  assert.deepEqual(safety.identity, { mode: "oidc", cryptographically_verified: true });
+  assert.deepEqual(safety.identity, {
+    mode: "oidc",
+    cryptographically_verified: true,
+    trust_domain_id: identityProvider.identityTrustDomainId,
+  });
 
   const demoHeaderOnly = await fetch(`${baseUrl}/v1/identity`, {
     headers: { "x-parimit-actor": "spoofed-agent", "x-parimit-role": "agent" },
@@ -125,4 +145,43 @@ test("environment OIDC verifier and HTTP authorization compose end to end", asyn
   assert.equal(createResponse.status, 201);
   const intent = (await body(createResponse)).data as Record<string, unknown>;
   assert.equal(intent.status, "AWAITING_APPROVAL");
+
+  const reviewerToken = jsonWebToken(
+    privateKey,
+    AUDIENCE,
+    "pilot-reviewer",
+    "integration-reviewer",
+  );
+  const approvalResponse = await fetch(`${baseUrl}/v1/intents/${String(intent.id)}/approvals`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${reviewerToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ decision: "APPROVE" }),
+  });
+  assert.equal(approvalResponse.status, 200);
+
+  const envelopeResponse = await fetch(
+    `${baseUrl}/v1/intents/${String(intent.id)}/evidence-envelopes`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${reviewerToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        audience: "urn:parimit:integration:consumer",
+        idempotency_key: "oidc-envelope-integration",
+      }),
+    },
+  );
+  assert.equal(envelopeResponse.status, 201);
+  const envelope = (await body(envelopeResponse)).data as Record<string, unknown>;
+  const claims = envelope.claims as Record<string, unknown>;
+  assert.deepEqual(claims.identity_assurance, {
+    authentication_method: "oidc",
+    cryptographically_verified: true,
+    trust_domain_id: identityProvider.identityTrustDomainId,
+  });
 });

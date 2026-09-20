@@ -1,0 +1,24 @@
+{
+  "profile": "parimit-canonical-json-v1",
+  "cases": [
+    {
+      "name": "lexicographic-numeric-looking-keys",
+      "input": { "10": "ten", "2": "two" },
+      "canonical": "{\"10\":\"ten\",\"2\":\"two\"}"
+    },
+    {
+      "name": "prototype-shaped-data-key",
+      "input": { "regular": "agent", "__proto__": "admin" },
+      "canonical": "{\"__proto__\":\"admin\",\"regular\":\"agent\"}"
+    },
+    {
+      "name": "nested-unicode-and-array-order",
+      "input": {
+        "z": "é",
+        "nested": { "β": "beta", "a": "😀" },
+        "array": [{ "b": 1, "a": 2 }, "line\nbreak"]
+      },
+      "canonical": "{\"array\":[{\"a\":2,\"b\":1},\"line\\nbreak\"],\"nested\":{\"a\":\"😀\",\"β\":\"beta\"},\"z\":\"é\"}"
+    }
+  ]
+}

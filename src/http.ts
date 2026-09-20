@@ -107,7 +107,9 @@ function decodePathSegment(value: string): string {
 }
 
 function parseIntentPath(pathname: string): { id: string; action?: string } | null {
-  const match = pathname.match(/^\/v1\/intents\/([^/]+)(?:\/(cancel|approvals|audit|audit\/verify))?$/);
+  const match = pathname.match(
+    /^\/v1\/intents\/([^/]+)(?:\/(cancel|approvals|audit|audit\/verify|evidence-envelopes))?$/,
+  );
   if (!match) return null;
   return { id: decodePathSegment(match[1]!), ...(match[2] ? { action: match[2] } : {}) };
 }
@@ -137,6 +139,13 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
       500,
     );
   }
+  if (options.identityProvider.identityTrustDomainId !== service.identityTrustDomainId) {
+    throw new ParimitError(
+      "INVALID_AUTH_CONFIGURATION",
+      "HTTP identity provider trust domain must exactly match the service trust domain",
+      500,
+    );
+  }
   const identityProvider = options.identityProvider;
 
   const authenticate = async (request: IncomingMessage): Promise<AuthenticatedActor> => {
@@ -148,6 +157,7 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
       !/^[A-Za-z0-9][A-Za-z0-9._:@/+\-]*$/.test(actor.actorId) ||
       (actor.actorRole !== "agent" &&
         actor.actorRole !== "approver" &&
+        actor.actorRole !== "consumer" &&
         actor.actorRole !== "admin") ||
       typeof actor.subject !== "string" ||
       actor.subject.length === 0 ||
@@ -176,6 +186,9 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
   };
 
   const authorizeIntentRead = (actor: AuthenticatedActor, intentId: string): void => {
+    if (actor.actorRole === "consumer") {
+      throw new ParimitError("FORBIDDEN", "Consumers cannot browse payment proposals", 403);
+    }
     if (actor.actorRole === "agent") {
       service.assertIntentOwnedByAgent(intentId, actor.actorId);
     }
@@ -231,6 +244,11 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
         return;
       }
 
+      if (method === "GET" && pathname === "/.well-known/jwks.json") {
+        sendJson(response, 200, service.envelopeJwks());
+        return;
+      }
+
       if (method === "GET" && pathname === "/v1/identity") {
         const actor = await authenticate(request);
         sendJson(response, 200, {
@@ -254,6 +272,7 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
 
       if (pathname === "/v1/intents" && method === "GET") {
         const actor = await authenticate(request);
+        requireRole(actor, ["agent", "approver", "admin"]);
         const rawStatus = url.searchParams.get("status");
         let status: IntentStatus | undefined;
         if (rawStatus !== null) {
@@ -323,6 +342,45 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
         return;
       }
 
+      if (pathname === "/v1/evidence-envelopes/verify" && method === "POST") {
+        const actor = await authenticate(request);
+        requireRole(actor, ["approver", "consumer", "admin"]);
+        const body = requireJsonObject(await readJson(request), ["compact_jws", "audience"]);
+        if (typeof body.compact_jws !== "string" || typeof body.audience !== "string") {
+          throw new ParimitError(
+            "VALIDATION_ERROR",
+            "compact_jws and audience are required strings",
+            400,
+          );
+        }
+        sendJson(response, 200, {
+          data: service.verifyAuthorizationEnvelope(body.compact_jws, body.audience),
+        });
+        return;
+      }
+
+      if (pathname === "/v1/evidence-envelopes/consume" && method === "POST") {
+        const actor = await authenticate(request);
+        requireRole(actor, ["consumer", "admin"]);
+        const body = requireJsonObject(await readJson(request), [
+          "compact_jws",
+          "audience",
+          "idempotency_key",
+        ]);
+        const envelope = service.consumeAuthorizationEnvelope(
+          body.compact_jws,
+          body.audience,
+          actor.actorId,
+          actor.actorRole,
+          body.idempotency_key,
+        );
+        sendJson(response, 200, {
+          data: envelope,
+          ...demoWarning(actor),
+        });
+        return;
+      }
+
       const intentPath = parseIntentPath(pathname);
       if (intentPath && method === "GET" && intentPath.action === undefined) {
         const actor = await authenticate(request);
@@ -348,6 +406,21 @@ export function createHttpHandler(service: ParimitService, options: HttpHandlerO
           body.decision,
         );
         sendJson(response, 200, { data: intent, ...demoWarning(actor) });
+        return;
+      }
+      if (intentPath && method === "POST" && intentPath.action === "evidence-envelopes") {
+        const actor = await authenticate(request);
+        requireRole(actor, ["approver", "admin"]);
+        const envelope = service.issueAuthorizationEnvelope(
+          intentPath.id,
+          await readJson(request),
+          actor.actorId,
+          actor.actorRole,
+        );
+        sendJson(response, envelope.idempotent_replay ? 200 : 201, {
+          data: envelope,
+          ...demoWarning(actor),
+        });
         return;
       }
       if (intentPath && method === "GET" && intentPath.action === "audit") {

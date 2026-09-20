@@ -13,7 +13,7 @@ export function startServer(environment: Record<string, string | undefined> = pr
     PARIMIT_DEMO_MODE: environment.PARIMIT_DEMO_MODE ?? "true",
   };
   const identityProvider = createIdentityProviderFromEnvironment(effectiveEnvironment);
-  const service = createServiceFromEnvironment(effectiveEnvironment);
+  const service = createServiceFromEnvironment(effectiveEnvironment, identityProvider);
   const host = effectiveEnvironment.PARIMIT_HOST ?? "127.0.0.1";
   const port = Number(effectiveEnvironment.PARIMIT_PORT ?? "8787");
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {

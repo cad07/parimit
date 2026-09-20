@@ -12,7 +12,8 @@ release.
 - Added OIDC bearer-token verification with issuer, audience, signature,
   lifetime, algorithm, JWKS rotation, and fail-closed role-mapping checks.
 - Added authenticated identity discovery and server-enforced `agent`,
-  `approver`, and `admin` route boundaries, including agent ownership scope.
+  `approver`, `consumer`, and `admin` route boundaries, including agent
+  ownership scope and consumer isolation from proposal browsing.
 - Added a dependency-free, role-shaped TypeScript SDK preview and a pilot
   client example with no execution capability.
 - Added a conservative single-instance, single-tenant OIDC pilot deployment
@@ -21,14 +22,20 @@ release.
 - Added a PostgreSQL 14+ schema and transaction contract covering per-agent
   policy locks, per-intent mutation locks, consistent integrity snapshots,
   append-only evidence, audit-fork prevention, and stable observation order.
+- Added tenant-bound payment-intent v3 digests with monotonic authorization
+  state versions.
+- Added short-lived, audience-bound Ed25519 Authorization Envelope v1 evidence,
+  public JWKS, strict verification, idempotent issuance, one-time SQLite
+  consumption, audit reconciliation, exact signed issuance time, and public
+  signature, canonical-JSON, identity-trust, and policy-configuration vectors.
 
 ### Changed
 
-- Protected every REST operation except safety metadata and preflight with an
-  authenticated identity; local demo headers now require explicit demo mode
-  and loopback isolation (or the documented host-loopback container escape
-  hatch).
-- Advanced runtime, MCP, OpenAPI, and SDK metadata to `0.1.0-alpha.2`.
+- Protected every REST operation except safety metadata, public envelope JWKS,
+  and preflight with an authenticated identity; local demo headers now require
+  explicit demo mode and loopback isolation (or the documented host-loopback
+  container escape hatch).
+- Advanced runtime, MCP, OpenAPI, and SDK metadata to `0.1.0-alpha.3`.
 - Disabled stdio MCP in OIDC mode until that transport can bind a verified
   actor identity; the hosted pilot remains REST/SDK-only.
 - Hardened identity handling with explicit server-side role mappings,
@@ -38,6 +45,14 @@ release.
 - Serialized idempotency, policy evaluation, and lifecycle transitions inside
   immediate SQLite write transactions, and expanded integrity verification to
   bind review event types, state thresholds, and ordered observation evidence.
+- Bound the exact OIDC verifier trust domain and normalized policy configuration
+  into v3 evidence and the non-rotatable database root; made policy snapshots
+  immutable after binding.
+- Made schema migration and receipt-root creation crash-atomic, rejected missing
+  roots beside material v3 history, enforced monotonic audit chronology, and
+  bound envelope issuance idempotency to the requested lifetime.
+- Added a receipt-key HMAC checkpoint over the complete signing-key registry so
+  removed historical public keys fail startup, JWKS publication, and lookup.
 
 ### Known limitations
 
@@ -46,6 +61,12 @@ release.
   suite are complete.
 - The hosted pilot is REST/SDK-only; the browser dashboard remains a local demo
   because no browser OIDC login or token flow is shipped.
+- Envelope replay protection is authoritative only inside one SQLite service
+  instance. Offline or distributed recipients require their own durable replay
+  ledger; managed signing and key revocation remain future work.
+- The key-registry checkpoint detects changes to the current database but not a
+  rollback to an older internally consistent snapshot without an external
+  monotonic anchor.
 
 ## [0.1.0-alpha.1] - 2026-09-19
 

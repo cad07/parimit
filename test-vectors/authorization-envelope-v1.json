@@ -1,0 +1,26 @@
+{
+  "profile": "parimit-authorization-envelope-v1-signature-vector",
+  "canonicalization": "recursively key-sorted JSON encoded as UTF-8",
+  "protected_header": {
+    "alg": "EdDSA",
+    "kid": "parimit-vector-2026-09",
+    "typ": "parimit-authz-envelope+jws"
+  },
+  "public_jwk": {
+    "kty": "OKP",
+    "crv": "Ed25519",
+    "x": "dt7-mU_BFFEZK_wQ8vnypx-Dl7DVmhXusUyJdbcaogA",
+    "use": "sig",
+    "key_ops": ["verify"],
+    "alg": "EdDSA",
+    "kid": "parimit-vector-2026-09"
+  },
+  "payload": {
+    "capability": {
+      "execution_authorized": false,
+      "moves_money": false
+    },
+    "version": "parimit-authorization-envelope-v1"
+  },
+  "compact_jws": "eyJhbGciOiJFZERTQSIsImtpZCI6InBhcmltaXQtdmVjdG9yLTIwMjYtMDkiLCJ0eXAiOiJwYXJpbWl0LWF1dGh6LWVudmVsb3BlK2p3cyJ9.eyJjYXBhYmlsaXR5Ijp7ImV4ZWN1dGlvbl9hdXRob3JpemVkIjpmYWxzZSwibW92ZXNfbW9uZXkiOmZhbHNlfSwidmVyc2lvbiI6InBhcmltaXQtYXV0aG9yaXphdGlvbi1lbnZlbG9wZS12MSJ9.GXQVBog1W3N7s67aig7_FowWMUwKMnjvF62Zr-K6Xnuy7GUE6A66PJFFp6RF7AvZYsH0JY2_Frgxqi4vw79zDA"
+}

@@ -7,7 +7,7 @@ open-source, proposal-only payment-intent governance boundary for AI agents.
 
 > **Alpha safety demo:** Parimit does not connect to UPI, a bank, a PSP,
 > or any live payment rail. It cannot move money. Do not treat it as a payment
-> processor, authorization system, or compliance certification.
+> processor, payment-rail authorization, or compliance certification.
 
 Parimit lets an agent propose a structured payment intent, applies
 deterministic policy, asks a human to approve or reject the exact intent, and
@@ -22,7 +22,7 @@ AI agent                         Human operator
     | propose / read / cancel own      | approve or reject exact proposal
     v                                  v
 +------------------------- Parimit -------------------------+
-| validation -> policy -> approval -> HMAC receipt -> audit |
+| validation -> policy -> approval -> signed evidence -> audit |
 +-----------------------------------------------------------+
                               |
                               v
@@ -32,11 +32,11 @@ AI agent                         Human operator
 
 The MCP surface intentionally exposes no `pay`, `send`, `initiate`, `execute`,
 or `approve` capability. The HTTP API supports verified OIDC bearer identity
-for a single-tenant pilot and keeps agent, approver, and admin roles separate.
+for a single-tenant pilot and keeps agent, approver, consumer, and admin roles separate.
 Clearly labelled, spoofable headers remain available only for an explicit
 local demo. No surface can dispatch an approval to a payment rail.
 
-## What works in v0.1.0-alpha.2
+## What works in v0.1.0-alpha.3
 
 - Create a proposal with an agent-scoped idempotency key.
 - Validate amount, currency, payee, purpose, and expiry.
@@ -44,6 +44,13 @@ local demo. No surface can dispatch an approval to a payment rail.
 - Require one or two distinct human approvals according to policy.
 - Cancel or inspect a proposal without moving funds.
 - Produce an HMAC-protected, non-dispatchable authorization receipt.
+- Issue a short-lived, audience-bound Ed25519 evidence envelope after full
+  approval, with signed `execution_authorized: false` and `moves_money: false`.
+- Publish public verification keys through JWKS and verify exact intent,
+  policy/configuration digest, identity trust domain, approver set, state
+  version, tenant, audit tip, audience, and expiry.
+- Atomically record one-time envelope consumption inside the single-instance
+  SQLite boundary; offline recipients still need their own durable replay ledger.
 - Append hash-chained audit events.
 - Simulate labelled outcomes; recording `IN_DOUBT` freezes the mock observation
   stream and rejects every later mock outcome.
@@ -109,11 +116,17 @@ file, while keeping its container host, port, database path, and demo mode fixed
 | `PARIMIT_AUTH_MODE` | `demo_headers` | `demo_headers` for loopback only, or `oidc` |
 | `PARIMIT_DEMO_ALLOW_NON_LOOPBACK_HEADERS` | `false` | Container-only demo escape hatch; safe only with a host-loopback published port |
 | `PARIMIT_RECEIPT_KEY` | insecure development value | HMAC key for approval receipts; OIDC mode requires at least 32 UTF-8 bytes |
+| `PARIMIT_TENANT_ID` | `local-demo` | Single deployment tenant bound into new v3 intent digests and envelopes |
+| `PARIMIT_ENVELOPE_ISSUER` | `https://parimit.local` | Exact HTTPS or URN issuer carried in signed envelopes |
+| `PARIMIT_ENVELOPE_AUDIENCES` | `urn:parimit:consumer:local-demo` | Exactly one relying-party trust URI in alpha.3; multiple audiences are rejected |
+| `PARIMIT_ENVELOPE_TTL_SECONDS` | `300` | Maximum signed-envelope lifetime, capped at 3600 seconds and the proposal deadline |
+| `PARIMIT_ENVELOPE_PRIVATE_KEY_PEM_BASE64` | ephemeral in demo | Base64-encoded PKCS#8 Ed25519 private-key PEM; required in non-demo mode |
+| `PARIMIT_ENVELOPE_SIGNING_KEY_ID` | public-key thumbprint | Optional stable signing-key identifier |
 | `PARIMIT_OIDC_ISSUER` | unset | Exact trusted token issuer required in OIDC mode |
 | `PARIMIT_OIDC_AUDIENCE` | unset | Required API audience in OIDC mode |
 | `PARIMIT_OIDC_JWKS_URI` | unset | HTTPS signing-key endpoint in OIDC mode |
 | `PARIMIT_OIDC_ROLE_CLAIM` | `roles` | Exact top-level token claim containing roles |
-| `PARIMIT_OIDC_ROLE_MAPPING` | unset | Required JSON map from dedicated IdP roles to `agent`, `approver`, or `admin` |
+| `PARIMIT_OIDC_ROLE_MAPPING` | unset | Required JSON map from dedicated IdP roles to `agent`, `approver`, `consumer`, or `admin` |
 | `PARIMIT_OIDC_CLOCK_SKEW_SECONDS` | `60` | Permitted token clock skew, capped at 300 seconds |
 | `PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS` | `3600` | Maximum `exp - iat`; OIDC server mode requires `iat` |
 | `PARIMIT_OIDC_REQUIRED_TYP` | unset | Optional exact JOSE `typ`: `at+jwt` or `JWT` |
@@ -127,6 +140,17 @@ file, while keeping its container host, port, database path, and demo mode fixed
 
 Use only fictional references. Do not put bank, PSP, UPI, OTP, PIN, or customer
 credentials into this application or its environment.
+
+`PARIMIT_RECEIPT_KEY` is bound to the database, tenant, envelope issuer, single
+envelope audience, authentication mode, exact identity trust-domain digest,
+policy-configuration digest, and envelope lifetime policy on first startup.
+Alpha.3 deliberately does not rotate this key or retarget that trust
+configuration in place: a mismatch fails startup before a new envelope signing
+key can be registered. A v3 database with material history but no root is
+treated as corruption. Recover the database, receipt key, trust configuration,
+and historical envelope-key registry as one set. A full-registry HMAC
+checkpoint detects removed historical public keys. OIDC mode refuses approval
+history that predates this authentication-mode binding.
 
 ## Safe demo
 
@@ -142,6 +166,10 @@ credentials into this application or its environment.
    with `IN_DOUBT_FROZEN`; this alpha has no reconciliation bypass.
 7. Inspect the audit chain. Re-submit the same idempotency key to see duplicate
    protection.
+
+The REST/SDK flow can additionally issue an evidence envelope as a reviewer,
+verify its Ed25519 signature and audience, then consume it once as a distinct
+`consumer`. Issuance and consumption are deliberately absent from MCP.
 
 Nothing in this flow contacts an external service or moves money.
 
@@ -173,6 +201,9 @@ to internal approval routes. See [`docs/safety-boundary.md`](docs/safety-boundar
   human authentication.
 - **Approval is not execution.** A receipt describes human authorization but
   is structurally non-dispatchable.
+- **Portable evidence is not a payment command.** The public-key-verifiable
+  envelope is audience-bound, short-lived, one-time, and signs explicit false
+  values for dispatch, provider instruction, execution authority, and money movement.
 - **Exact-intent binding.** Changing amount, currency, payee, or purpose
   invalidates earlier approvals.
 - **Fail closed.** Invalid policy, expired intent, audit mismatch, and uncertain
@@ -189,6 +220,7 @@ The repository enforces part of this boundary with
 - [Alpha.1 technical design paper (historical snapshot)](docs/design-paper.md) ([PDF](docs/parimit-design-paper-v0.1.pdf))
 - [Architecture](docs/architecture.md)
 - [API and MCP usage](docs/api.md)
+- [Authorization Envelope v1](docs/authorization-envelope-v1.md)
 - [Threat model](docs/threat-model.md)
 - [Safety boundary](docs/safety-boundary.md)
 - [Safe demo](docs/demo.md)
@@ -198,6 +230,7 @@ The repository enforces part of this boundary with
 - [PostgreSQL integration track](db/postgres/README.md)
 - [Requirements for a real payment integration](docs/real-integration-requirements.md)
 - [Decision record: proposal-only](docs/decisions/0001-proposal-only.md)
+- [Decision record: signed evidence envelopes](docs/decisions/0002-evidence-envelope.md)
 
 ## Relationship to NPCI AiNxt OS
 

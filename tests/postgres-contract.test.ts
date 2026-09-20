@@ -88,7 +88,9 @@ test("PostgreSQL integrity reads use one repeatable read-only snapshot", async (
 
 test("policy and intent locks use stable database rows", async () => {
   const client = new FakePostgresClient((text) => {
-    if (/SELECT agent_id/.test(text)) return { rows: [{ agent_id: "agent-1" }], rowCount: 1 };
+    if (/SELECT tenant_id, agent_id/.test(text)) {
+      return { rows: [{ tenant_id: "tenant-1", agent_id: "agent-1" }], rowCount: 1 };
+    }
     if (/SELECT id/.test(text)) {
       return { rows: [{ id: "11111111-1111-4111-8111-111111111111" }], rowCount: 1 };
     }
@@ -96,22 +98,30 @@ test("policy and intent locks use stable database rows", async () => {
   });
   const transaction = client as PostgresTransactionClient;
 
-  await lockPolicySubject(transaction, "agent-1");
-  assert.equal(await lockIntentForMutation(transaction, "11111111-1111-4111-8111-111111111111"), true);
+  await lockPolicySubject(transaction, "tenant-1", "agent-1");
+  assert.equal(
+    await lockIntentForMutation(
+      transaction,
+      "tenant-1",
+      "11111111-1111-4111-8111-111111111111",
+    ),
+    true,
+  );
 
   assert.match(client.calls[0].text, /INSERT INTO parimit[.]policy_subjects/);
   assert.match(client.calls[1].text, /FOR UPDATE/);
   assert.match(client.calls[2].text, /FROM parimit[.]intents[\s\S]*FOR UPDATE/);
   assert.deepEqual(client.calls.map((call) => call.values), [
-    ["agent-1"],
-    ["agent-1"],
-    ["11111111-1111-4111-8111-111111111111"],
+    ["tenant-1", "agent-1"],
+    ["tenant-1", "agent-1"],
+    ["tenant-1", "11111111-1111-4111-8111-111111111111"],
   ]);
 });
 
 test("audit append locks its intent and reproduces the existing canonical hash", async () => {
   const intentId = "11111111-1111-4111-8111-111111111111";
   const input = {
+    tenantId: "tenant-1",
     intentId,
     eventType: "PROPOSAL_CREATED",
     actorId: "agent-1",
@@ -156,6 +166,7 @@ test("audit append fails closed when the parent intent is absent", async () => {
   const client = new FakePostgresClient(() => ({ rows: [], rowCount: 0 }));
   await assert.rejects(
     appendAuditEvent(client as PostgresTransactionClient, {
+      tenantId: "tenant-1",
       intentId: "11111111-1111-4111-8111-111111111111",
       eventType: "PROPOSAL_CREATED",
       actorId: "agent-1",
@@ -174,11 +185,22 @@ test("PostgreSQL migration preserves evidence and proposal-only invariants", () 
     "utf8",
   );
 
-  for (const table of ["policy_subjects", "intents", "approvals", "observations", "audit_events"]) {
+  for (const table of [
+    "policy_subjects",
+    "intents",
+    "approvals",
+    "observations",
+    "audit_events",
+    "envelope_signing_keys",
+    "envelope_signing_key_registry_state",
+    "service_integrity_roots",
+    "authorization_envelopes",
+  ]) {
     assert.match(migration, new RegExp(`CREATE TABLE parimit[.]${table} \\(`));
   }
   assert.match(migration, /amount_minor BETWEEN 1 AND 9007199254740991/);
-  assert.match(migration, /agent_id text NOT NULL REFERENCES parimit[.]policy_subjects\(agent_id\)/);
+  assert.match(migration, /FOREIGN KEY \(tenant_id, agent_id\)/);
+  assert.match(migration, /UNIQUE \(tenant_id, agent_id, idempotency_key\)/);
   assert.match(migration, /currency = 'INR'/);
   assert.match(migration, /AUTHORIZED_NO_DISPATCH/);
   assert.match(migration, /source = 'DEMO_MOCK'/);
@@ -188,6 +210,28 @@ test("PostgreSQL migration preserves evidence and proposal-only invariants", () 
   assert.match(migration, /BEFORE INSERT ON parimit[.]audit_events/);
   assert.match(migration, /FOR UPDATE/);
   assert.match(migration, /invalid intent status transition/);
+  assert.match(migration, /authorization state cannot advance without a valid transition/);
+  assert.match(migration, /authorization state version must increment exactly once/);
+  assert.match(migration, /name = 'receipt_integrity_root_v1'/);
+  assert.match(migration, /service_integrity_roots_append_only/);
+  assert.match(migration, /name = 'envelope_signing_key_registry_state_v1'/);
+  assert.match(migration, /envelope_signing_key_registry_state_no_delete/);
+  assert.match(migration, /authorization envelopes must be inserted unconsumed/);
+  assert.match(
+    migration,
+    /BEFORE INSERT OR UPDATE OR DELETE ON parimit[.]authorization_envelopes/,
+  );
+  assert.match(migration, /authorization-envelope consumption is a one-time transition/);
+  assert.match(migration, /consumed_at >= issued_at[\s\S]*consumed_at < expires_at/);
+  assert.match(
+    migration,
+    /OLD[.]consumed_at IS NOT NULL[\s\S]*OLD[.]consumed_by IS NOT NULL[\s\S]*OLD[.]consumption_idempotency_key IS NOT NULL[\s\S]*NEW[.]consumed_at IS NULL[\s\S]*NEW[.]consumed_by IS NULL[\s\S]*NEW[.]consumption_idempotency_key IS NULL/,
+  );
+  assert.match(migration, /authorization_envelope_nonce_unique UNIQUE \(tenant_id, nonce_hash\)/);
+  assert.match(
+    migration,
+    /FOREIGN KEY \(tenant_id, intent_id\)[\s\S]*REFERENCES parimit[.]intents\(tenant_id, id\)/,
+  );
   assert.match(migration, /contains no payment execution or provider credential tables/);
   assert.doesNotMatch(migration, /CREATE TABLE\s+(?:parimit[.])?(?:payments|executions|transfers)\b/i);
 

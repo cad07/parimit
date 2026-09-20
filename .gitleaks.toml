@@ -3,9 +3,12 @@ title = "Parimit secret scanning"
 [extend]
 useDefault = true
 
-[[allowlists]]
-description = "Known non-secret literals used only by legacy migration attack fixtures"
+[allowlist]
+description = "Known non-secret test fixtures and published public signature vectors"
 regexes = [
   '''^legacy-v1-row$''',
   '''^legacy-v1-attack-fixture-secret$''',
+]
+paths = [
+  '''^test-vectors/authorization-envelope-v1[.]json$''',
 ]
