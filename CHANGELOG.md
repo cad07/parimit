@@ -7,6 +7,8 @@ release.
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3] - 2026-09-20
+
 ### Added
 
 - Added OIDC bearer-token verification with issuer, audience, signature,
