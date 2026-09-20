@@ -18,11 +18,10 @@ dependencies.
 
 ```sh
 npm start
-npm test
-npm run check:boundary
+npm run check
 ```
 
-Every pull request must keep tests and the boundary scanner green. Add tests
+Every pull request must keep the complete test and boundary gate green. Add tests
 for success, rejection, mutation after approval, duplicate submission,
 distinct approvers, expiry, and uncertain outcomes when relevant.
 

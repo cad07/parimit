@@ -9,6 +9,9 @@ services:
       PARIMIT_PORT: "8787"
       PARIMIT_DB_PATH: /data/parimit.db
       PARIMIT_DEMO_MODE: "true"
+      PARIMIT_AUTH_MODE: demo_headers
+      # Safe only because the published host port below is bound to 127.0.0.1.
+      PARIMIT_DEMO_ALLOW_NON_LOOPBACK_HEADERS: "true"
       PARIMIT_RECEIPT_KEY: ${PARIMIT_RECEIPT_KEY:-local-demo-only-change-before-sharing}
       PARIMIT_PER_TX_LIMIT: ${PARIMIT_PER_TX_LIMIT:-100000}
       PARIMIT_DAILY_AGENT_LIMIT: ${PARIMIT_DAILY_AGENT_LIMIT:-500000}

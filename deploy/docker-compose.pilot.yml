@@ -1,0 +1,55 @@
+name: parimit-pilot
+
+services:
+  parimit:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: "parimit-pilot:${PARIMIT_IMAGE_TAG:-0.1.0-alpha.2-local}"
+    init: true
+    environment:
+      NODE_ENV: production
+      PARIMIT_HOST: 0.0.0.0
+      PARIMIT_PORT: "8787"
+      PARIMIT_DB_PATH: /data/parimit.db
+      PARIMIT_AUTH_MODE: oidc
+      PARIMIT_DEMO_MODE: "false"
+      PARIMIT_RECEIPT_KEY: "${PARIMIT_RECEIPT_KEY:?set PARIMIT_RECEIPT_KEY in the protected pilot env file}"
+      PARIMIT_OIDC_ISSUER: "${PARIMIT_OIDC_ISSUER:?set PARIMIT_OIDC_ISSUER}"
+      PARIMIT_OIDC_AUDIENCE: "${PARIMIT_OIDC_AUDIENCE:?set PARIMIT_OIDC_AUDIENCE}"
+      PARIMIT_OIDC_JWKS_URI: "${PARIMIT_OIDC_JWKS_URI:?set PARIMIT_OIDC_JWKS_URI}"
+      PARIMIT_OIDC_ROLE_CLAIM: "${PARIMIT_OIDC_ROLE_CLAIM:-roles}"
+      PARIMIT_OIDC_ROLE_MAPPING: "${PARIMIT_OIDC_ROLE_MAPPING:?set PARIMIT_OIDC_ROLE_MAPPING}"
+      PARIMIT_OIDC_CLOCK_SKEW_SECONDS: "${PARIMIT_OIDC_CLOCK_SKEW_SECONDS:-60}"
+      PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS: "${PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS:-3600}"
+      PARIMIT_OIDC_REQUIRED_TYP: "${PARIMIT_OIDC_REQUIRED_TYP:-}"
+      PARIMIT_PER_TX_LIMIT: "${PARIMIT_PER_TX_LIMIT:-100000}"
+      PARIMIT_DAILY_AGENT_LIMIT: "${PARIMIT_DAILY_AGENT_LIMIT:-500000}"
+      PARIMIT_DUAL_APPROVAL_THRESHOLD: "${PARIMIT_DUAL_APPROVAL_THRESHOLD:-50000}"
+      PARIMIT_INTENT_TTL_SECONDS: "${PARIMIT_INTENT_TTL_SECONDS:-1800}"
+      PARIMIT_MAX_EXPIRY_SECONDS: "${PARIMIT_MAX_EXPIRY_SECONDS:-86400}"
+      PARIMIT_BLOCKED_PAYEES: "${PARIMIT_BLOCKED_PAYEES:-}"
+      PARIMIT_ALLOWED_PAYEES: "${PARIMIT_ALLOWED_PAYEES:?set a comma-separated fictional payee allowlist}"
+    ports:
+      - "127.0.0.1:${PARIMIT_UPSTREAM_PORT:-8787}:8787"
+    volumes:
+      - parimit-pilot-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    stop_grace_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+volumes:
+  parimit-pilot-data:

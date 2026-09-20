@@ -28,7 +28,7 @@ An adapter must not mutate a proposal or invent approval.
 2. Make the scenario deterministic when given the same explicit test input.
 3. Label every result as simulated in the API, UI, logs, and audit event.
 4. Cover success, validation failure, timeout/uncertainty, and duplicate calls.
-5. Run `npm test` and `npm run check:boundary`.
+5. Run the complete gate with `npm run check`.
 
 An acceptable mock adapter may introduce delay or return an `IN_DOUBT` result.
 It cannot later replace that uncertainty with another outcome through the alpha

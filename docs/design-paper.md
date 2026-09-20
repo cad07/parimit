@@ -6,6 +6,11 @@
 
 **Parimit Contributors**
 
+> **Snapshot note:** this paper records the alpha.1 implementation. Alpha.2
+> adds OIDC-protected REST authorization, the SDK preview, and pilot guidance;
+> see the repository README, changelog, identity guide, and pilot guide for
+> current behavior. The PDF remains the matching alpha.1 publication snapshot.
+
 > **Publication status:** implementation-aligned alpha paper. Parimit is a local research prototype. It does not connect to UPI, a bank, a payment service provider, a wallet, a blockchain facilitator, or any other live payment rail. It cannot move money. Nothing in this paper is a certification, regulatory opinion, or claim of NPCI affiliation.
 
 ## Abstract

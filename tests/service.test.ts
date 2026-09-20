@@ -25,6 +25,47 @@ function proposal(
   };
 }
 
+function appendForgedAuditEvent(
+  service: ParimitService,
+  intentId: string,
+  eventType: string,
+  actorId: string,
+  payload: unknown,
+  occurredAt: string,
+): void {
+  const previous = service.database
+    .prepare(
+      "SELECT event_hash FROM audit_events WHERE intent_id = ? ORDER BY sequence DESC LIMIT 1",
+    )
+    .get(intentId) as Record<string, string>;
+  const previousHash = previous.event_hash;
+  const eventHash = sha256(
+    canonicalJson({
+      intent_id: intentId,
+      event_type: eventType,
+      actor_id: actorId,
+      payload,
+      occurred_at: occurredAt,
+      previous_hash: previousHash,
+    }),
+  );
+  service.database
+    .prepare(
+      `INSERT INTO audit_events
+        (intent_id, event_type, actor_id, payload, occurred_at, previous_hash, event_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      intentId,
+      eventType,
+      actorId,
+      canonicalJson(payload),
+      occurredAt,
+      previousHash,
+      eventHash,
+    );
+}
+
 test("validates INR minor units and creates proposal-only immutable intents", (t) => {
   const service = new ParimitService({ receiptSecret: "test-secret" });
   t.after(() => service.close());
@@ -449,6 +490,17 @@ test("rejection is terminal and mock observations require full authorization", (
     () => service.approveIntent(created.id, "human-other", "approver", "APPROVE"),
     (error: unknown) => error instanceof ParimitError && error.code === "INVALID_STATE",
   );
+
+  const partiallyApproved = service.createIntent(proposal("partial-then-reject", "60000"));
+  service.approveIntent(partiallyApproved.id, "partial-human-a", "approver", "APPROVE");
+  const rejectedAfterOne = service.approveIntent(
+    partiallyApproved.id,
+    "partial-human-b",
+    "approver",
+    "REJECT",
+  );
+  assert.equal(rejectedAfterOne.status, "REJECTED");
+  assert.equal(service.verifyIntegrity(partiallyApproved.id).valid, true);
 });
 
 test("intent expiry is enforced before a late approval", (t) => {
@@ -675,6 +727,102 @@ test("authorization state requires the configured number of valid distinct appro
   assert.equal(deletedReport.state_consistency_valid, false);
   assert.ok(deletedReport.failures.includes("AUTHORIZED_APPROVAL_THRESHOLD_NOT_MET"));
   assert.ok(deletedReport.failures.includes("APPROVAL_AUDIT_COUNT_MISMATCH"));
+
+  const rejectionSecret = "rejected-after-threshold-secret";
+  const rejectedService = new ParimitService({
+    receiptSecret: rejectionSecret,
+    policy: {
+      perTransactionLimitMinor: 10_000,
+      dailyAgentLimitMinor: 20_000,
+      dualApprovalThresholdMinor: 500,
+    },
+  });
+  t.after(() => rejectedService.close());
+  const rejected = rejectedService.createIntent(proposal("rejected-after-threshold", "501"));
+  rejectedService.approveIntent(rejected.id, "threshold-human-a", "approver", "APPROVE");
+  const authorizedAfterSecond = rejectedService.approveIntent(
+    rejected.id,
+    "threshold-human-b",
+    "admin",
+    "APPROVE",
+  );
+  const rejectedAt = new Date(
+    Date.parse(authorizedAfterSecond.approvals.at(-1)!.created_at) + 1_000,
+  ).toISOString();
+  const rejectionReceipt = hmacSha256(rejectionSecret, {
+    version: "parimit-approval-receipt-v1",
+    intent_id: rejected.id,
+    intent_hash: rejected.intent_hash,
+    actor_id: "threshold-human-c",
+    actor_role: "approver",
+    decision: "REJECT",
+    created_at: rejectedAt,
+  });
+  rejectedService.database
+    .prepare(
+      `INSERT INTO approvals
+        (id, intent_id, actor_id, actor_role, decision, intent_hash, created_at, receipt_hmac)
+       VALUES ('forged-late-rejection', ?, 'threshold-human-c', 'approver', 'REJECT', ?, ?, ?)`,
+    )
+    .run(rejected.id, rejected.intent_hash, rejectedAt, rejectionReceipt);
+  rejectedService.database
+    .prepare("UPDATE intents SET status = 'REJECTED' WHERE id = ?")
+    .run(rejected.id);
+  appendForgedAuditEvent(
+    rejectedService,
+    rejected.id,
+    "HUMAN_REJECTION_RECORDED",
+    "threshold-human-c",
+    {
+      actor_role: "approver",
+      decision: "REJECT",
+      intent_hash: rejected.intent_hash,
+      receipt_hmac: rejectionReceipt,
+      resulting_status: "REJECTED",
+    },
+    rejectedAt,
+  );
+  const rejectedReport = rejectedService.verifyIntegrity(rejected.id);
+  assert.equal(rejectedReport.approval_receipts_valid, true);
+  assert.equal(rejectedReport.audit_chain_valid, true);
+  assert.equal(rejectedReport.state_consistency_valid, false);
+  assert.ok(rejectedReport.failures.includes("REJECTED_STATE_MISMATCH"));
+});
+
+test("approval audit events bind the event type to the signed decision", (t) => {
+  const service = new ParimitService({ receiptSecret: "review-event-type-secret" });
+  t.after(() => service.close());
+
+  const created = service.createIntent(proposal("review-event-type", "100"));
+  service.approveIntent(created.id, "human-a", "approver", "APPROVE");
+  const row = service.database
+    .prepare(
+      `SELECT sequence, actor_id, payload, occurred_at, previous_hash
+         FROM audit_events
+        WHERE intent_id = ? AND event_type = 'HUMAN_APPROVAL_RECORDED'`,
+    )
+    .get(created.id) as Record<string, string | number | bigint | null>;
+  const relabeledEventType = "HUMAN_REJECTION_RECORDED";
+  const payload = JSON.parse(String(row.payload)) as unknown;
+  const eventHash = sha256(
+    canonicalJson({
+      intent_id: created.id,
+      event_type: relabeledEventType,
+      actor_id: String(row.actor_id),
+      payload,
+      occurred_at: String(row.occurred_at),
+      previous_hash: String(row.previous_hash),
+    }),
+  );
+  service.database
+    .prepare("UPDATE audit_events SET event_type = ?, event_hash = ? WHERE sequence = ?")
+    .run(relabeledEventType, eventHash, row.sequence);
+
+  const report = service.verifyIntegrity(created.id);
+  assert.equal(report.audit_chain_valid, true);
+  assert.equal(report.approval_receipts_valid, true);
+  assert.equal(report.state_consistency_valid, false);
+  assert.ok(report.failures.includes("APPROVAL_AUDIT_MISMATCH:human-a"));
 });
 
 test("IN_DOUBT freezes every later mock observation because alpha has no reconciliation authority", (t) => {
@@ -710,5 +858,36 @@ test("IN_DOUBT freezes every later mock observation because alpha has no reconci
           event.event_type === "DEMO_MOCK_OBSERVATION_RECORDED" &&
           (event.payload as Record<string, unknown>).retry_permitted === false,
       ),
+  );
+
+  const inDoubtAt = observed.observation!.observed_at;
+  const forgedAt = new Date(Date.parse(inDoubtAt) + 1_000).toISOString();
+  const forgedObservationId = "forged-after-in-doubt";
+  service.database
+    .prepare(
+      `INSERT INTO observations (id, intent_id, status, provider_reference, observed_at, source)
+       VALUES (?, ?, 'SUCCEEDED', 'mock-ref-forged-later', ?, 'DEMO_MOCK')`,
+    )
+    .run(forgedObservationId, created.id, forgedAt);
+  appendForgedAuditEvent(
+    service,
+    created.id,
+    "DEMO_MOCK_OBSERVATION_RECORDED",
+    "forged-operator",
+    {
+      observation_id: forgedObservationId,
+      status: "SUCCEEDED",
+      provider_reference: "mock-ref-forged-later",
+      source: "DEMO_MOCK",
+      retry_permitted: false,
+      moves_money: false,
+    },
+    forgedAt,
+  );
+  const forgedReport = service.verifyIntegrity(created.id);
+  assert.equal(forgedReport.audit_chain_valid, true);
+  assert.equal(forgedReport.state_consistency_valid, false);
+  assert.ok(
+    forgedReport.failures.includes(`OBSERVATION_AFTER_IN_DOUBT:${forgedObservationId}`),
   );
 });

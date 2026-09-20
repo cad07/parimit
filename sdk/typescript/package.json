@@ -1,0 +1,17 @@
+{
+  "name": "@parimit/sdk",
+  "version": "0.1.0-alpha.2",
+  "description": "Proposal-only TypeScript client for Parimit pilot integrations.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "MIT"
+}

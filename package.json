@@ -1,6 +1,6 @@
 {
   "name": "parimit",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "A non-dispatchable payment-intent boundary that gives AI agents bounded authority.",
   "type": "module",
   "private": true,
@@ -20,8 +20,9 @@
     "mcp": "node --experimental-strip-types src/mcp.ts",
     "demo:agent": "node --experimental-strip-types examples/demo-agent.ts",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:sdk": "node --experimental-strip-types --test sdk/typescript/tests/*.test.ts",
     "check:boundary": "node --experimental-strip-types scripts/check-boundary.ts",
-    "check": "node --experimental-strip-types --test tests/*.test.ts && node --experimental-strip-types scripts/check-boundary.ts"
+    "check": "node --experimental-strip-types --test tests/*.test.ts && node --experimental-strip-types --test sdk/typescript/tests/*.test.ts && node --experimental-strip-types scripts/check-boundary.ts"
   },
   "keywords": [
     "ai-agents",

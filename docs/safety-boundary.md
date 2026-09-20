@@ -7,8 +7,9 @@ conflicts with this boundary, the boundary wins.
 
 An AI agent-facing capability may propose and observe but must not decide;
 decisions belong to a separate human trust domain, and the open-source default
-build can never execute a payment. The alpha's spoofable demo headers illustrate
-this workflow but do not authenticate a human.
+build can never execute a payment. Alpha.2 verifies OIDC identity for a
+single-tenant REST pilot; spoofable headers remain only for an explicit local
+demo and do not authenticate a human.
 
 ## Permitted agent operations
 
@@ -16,7 +17,7 @@ this workflow but do not authenticate a human.
 - Read a proposal and its policy/status metadata when authorized.
 - List authorized proposals with bounded pagination.
 - Cancel an eligible proposal created in the same authority scope.
-- Request a clearly labelled mock outcome in demo mode.
+- Request a clearly labelled mock outcome through the local MCP simulator.
 
 ## Forbidden agent and MCP operations
 
@@ -52,15 +53,19 @@ separately against HMACs and the local event history.
 
 ## Human decision requirements
 
-- Approval routes are separate from agent tools. A real deployment must require
-  strongly authenticated, authorized human identity; the alpha does not.
+- Approval routes are separate from agent tools. A shared pilot must use OIDC,
+  map each subject to exactly one role, and require the identity provider's
+  strong authentication controls for reviewers.
 - The UI shows the exact amount, currency, payee, purpose, and relevant risk
   signals before confirmation.
 - High-risk policy may require two distinct authorized identities.
 - The requester does not count as an approver where separation is required.
 - Reject and cancel are terminal for the proposal version.
-- Authentication assertions, CSRF protection, and session strength must be
-  upgraded before any shared deployment.
+- The alpha does not implement browser login, token acquisition, step-up
+  authentication, revocation lookup, or multi-tenant authorization. Those
+  remain outside the supported single-tenant API/SDK pilot.
+- Stdio MCP is disabled in OIDC mode because the alpha cannot bind a verified
+  OIDC actor to that transport. The external pilot uses REST or the SDK.
 
 ## Non-dispatchable receipt
 
