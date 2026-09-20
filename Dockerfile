@@ -1,4 +1,4 @@
-FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+FROM node:26.8.2-bookworm-slim@sha256:cd9f682fa2885cd1056e830424764158570061c59736a1da836bc3d73df095ae
 
 ENV NODE_ENV=production \
     PARIMIT_HOST=127.0.0.1 \
