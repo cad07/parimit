@@ -19,6 +19,7 @@
     "start": "node --experimental-strip-types src/server.ts",
     "mcp": "node --experimental-strip-types src/mcp.ts",
     "demo:agent": "node --experimental-strip-types examples/demo-agent.ts",
+    "demo:ainxt": "node --experimental-strip-types examples/ainxt-parimit-reference.ts",
     "pilot:keycloak:bootstrap": "node --experimental-strip-types scripts/bootstrap-keycloak-pilot.ts",
     "pilot:keycloak:smoke": "node --experimental-strip-types scripts/run-keycloak-pilot.ts --workload-smoke",
     "pilot:keycloak:accept": "node --experimental-strip-types scripts/run-keycloak-pilot.ts",

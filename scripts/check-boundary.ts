@@ -15,6 +15,7 @@ import { basename, extname, relative, sep } from "node:path";
 
 const repositoryRoot = new URL("../", import.meta.url);
 const sourceRoot = new URL("../src/", import.meta.url);
+const integrationRoot = new URL("../integrations/", import.meta.url);
 
 const forbiddenToolTokens = new Set([
   "approve",
@@ -52,6 +53,13 @@ const forbiddenNetworkModules = new Set([
 // may fetch the operator-configured OIDC JWKS; it never receives proposal URLs.
 const localHttpEdgeBasenames = new Set(["auth.ts", "http.ts", "server.ts"]);
 
+// `chat.send` is AiNxt's mandatory capability for its chat transport, not a
+// Parimit action or payment-dispatch tool. Keep the exception exact and scoped
+// to the reviewed edge adapter so the authority-token rule stays fail-closed.
+const reviewedExternalCapabilities = new Map([
+  ["integrations/ainxt/adapter.ts", new Set(["chat.send"])],
+]);
+
 async function walk(directory: URL): Promise<URL[]> {
   const files: URL[] = [];
 
@@ -82,6 +90,7 @@ function withoutComments(source: string): string {
 }
 
 function isAgentSurface(path: string): boolean {
+  if (path.toLowerCase().startsWith("integrations/ainxt/")) return true;
   const file = basename(path).toLowerCase();
   return /(^|[._-])(mcp|agent|tools?)([._-]|$)/.test(file) ||
     path.toLowerCase().split("/").some((part) => ["mcp", "agent", "agents", "tool", "tools"].includes(part));
@@ -138,6 +147,12 @@ let files: URL[];
 try {
   await stat(sourceRoot);
   files = await walk(sourceRoot);
+  try {
+    await stat(integrationRoot);
+    files.push(...(await walk(integrationRoot)));
+  } catch {
+    // Integrations are optional, but every present integration is scanned.
+  }
 } catch {
   console.error("Boundary check failed: src/ was not found.");
   process.exit(1);
@@ -149,6 +164,7 @@ for (const file of files) {
 
   if (isAgentSurface(path)) {
     for (const name of toolNames(source)) {
+      if (reviewedExternalCapabilities.get(path)?.has(name)) continue;
       const token = forbiddenToolToken(name);
       if (token) {
         violations.push(`${path}: agent/MCP tool '${name}' contains forbidden authority token '${token}'`);
@@ -184,4 +200,4 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
-console.log(`Boundary check passed (${files.length} runtime source files scanned).`);
+console.log(`Boundary check passed (${files.length} source and integration files scanned).`);

@@ -9,6 +9,15 @@ release.
 
 ### Added
 
+- Added an optional, source-review-anchored AiNxt sidecar reference adapter that
+  converts strictly validated synthetic AiNxt drafts into Parimit simulations
+  or agent-owned proposals while exposing no approval, evidence, or execution
+  authority.
+- Added mocked, fail-closed adapter contract tests covering safety metadata,
+  OIDC-shaped agent binding, SSE validation, exact draft schemas, same-process
+  replay stability, response ownership, and cancellation, plus an in-process
+  cryptographic OIDC/HTTP integration test. Live AiNxt/Keycloak acceptance
+  remains a separate gate.
 - Added a local-only, TLS-enabled Keycloak pilot profile with a pinned identity
   provider image, explicit client-role and audience mapping, separate human and
   workload identities, generated non-committed secrets, a machine-only smoke
