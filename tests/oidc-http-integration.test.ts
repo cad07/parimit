@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 
+import { AiNxtParimitAdapter } from "../integrations/ainxt/adapter.ts";
 import { createIdentityProviderFromEnvironment } from "../src/auth.ts";
 import { createHttpHandler } from "../src/http.ts";
 import { createServiceFromEnvironment } from "../src/service.ts";
@@ -127,6 +128,61 @@ test("environment OIDC verifier and HTTP authorization compose end to end", asyn
   const identity = (await body(identityResponse)).data as Record<string, unknown>;
   assert.equal(identity.actor_role, "agent");
   assert.match(String(identity.actor_id), /^oidc:[a-f0-9]{64}$/);
+
+  let ainxtCalls = 0;
+  const adapterFetch: typeof fetch = async (input, init = {}) => {
+    const url = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url !== "http://127.0.0.1:8080/v1/chat") return fetch(input, init);
+    ainxtCalls += 1;
+    const request = JSON.parse(String(init.body)) as { session: string; turn: string };
+    const draft = JSON.stringify({
+      amount: { currency: "INR", minor: "49900" },
+      payee_reference: "demo-coffee-merchant",
+      purpose: "Synthetic order DEMO-COFFEE-001",
+      on_behalf_of: "demo-customer-1",
+      expires_in_seconds: 300,
+    });
+    const envelope = (seq: number, type: string, fields: Record<string, unknown> = {}) => ({
+      v: "1.0",
+      session_id: request.session,
+      turn_id: request.turn,
+      seq,
+      ts: `2026-09-22T00:00:0${seq}Z`,
+      control_plane_sha: "oidc-integration-control-plane",
+      type,
+      ...fields,
+    });
+    const frames = [
+      envelope(1, "turn.started"),
+      envelope(2, "text.delta", { text: draft }),
+      envelope(3, "turn.completed", { outcome: "complete" }),
+    ];
+    return new Response(
+      frames.map((frame, index) => `id: ${index + 1}\ndata: ${JSON.stringify(frame)}\n\n`).join(""),
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+  };
+  const adapter = new AiNxtParimitAdapter({
+    ainxtBaseUrl: "http://127.0.0.1:8080",
+    parimitBaseUrl: baseUrl,
+    accessToken,
+    fetch: adapterFetch,
+  });
+  const adapterRequest = {
+    scenario: "coffee_order" as const,
+    idempotency_key: "ainxt-oidc-integration",
+  };
+  const adapterIntent = await adapter.createProposal(adapterRequest);
+  const adapterReplay = await adapter.createProposal(adapterRequest);
+  assert.equal(adapterIntent.intent.status, "AWAITING_APPROVAL");
+  assert.equal(adapterIntent.intent.requested_by.id, identity.actor_id);
+  assert.equal(adapterReplay.intent.id, adapterIntent.intent.id);
+  assert.equal(adapterReplay.intent.idempotent_replay, true);
+  assert.equal(ainxtCalls, 1);
 
   const createResponse = await fetch(`${baseUrl}/v1/intents`, {
     method: "POST",

@@ -61,6 +61,9 @@ local demo. No surface can dispatch an approval to a payment rail.
 - Scope agents to their own proposals while reviewers and administrators use
   separate capabilities.
 - Use a dependency-free, role-shaped TypeScript SDK preview.
+- Use the optional AiNxt source-review-anchored sidecar adapter for a synthetic,
+  proposal-only compatibility pilot; it is not a native AiNxt tool or NPCI
+  endorsement.
 - Review the PostgreSQL 14+ schema and transaction contract for the next
   storage port. PostgreSQL is not runtime-selectable yet.
 - Run locally with Node.js 24 and no third-party runtime dependencies.
@@ -215,6 +218,14 @@ proposal-safe tools:
 MCP clients must not be given the human dashboard credentials or direct access
 to internal approval routes. See [`docs/safety-boundary.md`](docs/safety-boundary.md).
 
+The optional [`integrations/ainxt`](integrations/ainxt/README.md) reference
+adapter uses AiNxt's public HTTP/SSE docking contract, accepts only code-owned
+synthetic fixtures, strictly validates the model draft, and then calls only the
+OIDC-protected Parimit agent REST surface. Its source review is anchored to an
+exact AiNxt commit and it never forwards the Parimit bearer token to AiNxt. It
+is an independent compatibility pilot, not an AiNxt native connector, AtOM
+integration, UPI access, or payment execution.
+
 ## Design principles
 
 - **Agents propose; review stays separate.** The MCP surface has no approval
@@ -268,6 +279,12 @@ independently written implementation.
 No AiNxt source code is copied into this initial release. Parimit is not
 affiliated with or endorsed by NPCI, and it must not use NPCI, AiNxt, or UPI
 logos. See [`NOTICE`](NOTICE).
+
+An optional, independently written trusted-sidecar reference adapter now lives
+under [`integrations/ainxt`](integrations/ainxt/README.md). It uses the public
+AiNxt HTTP/SSE docking contract and Parimit OIDC REST boundary; it does not make
+AiNxt a dependency of Parimit's core and does not constitute native AiNxt or
+NPCI integration.
 
 ## Contributing and security
 
