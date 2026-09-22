@@ -367,7 +367,10 @@ async function main(): Promise<void> {
       environmentLine("PARIMIT_DUAL_APPROVAL_THRESHOLD", "50000"),
       environmentLine("PARIMIT_INTENT_TTL_SECONDS", "1800"),
       environmentLine("PARIMIT_MAX_EXPIRY_SECONDS", "86400"),
-      environmentLine("PARIMIT_ALLOWED_PAYEES", "merchant_pilot_001,merchant_pilot_002"),
+      environmentLine(
+        "PARIMIT_ALLOWED_PAYEES",
+        "merchant_pilot_001,merchant_pilot_002,demo-coffee-merchant",
+      ),
       environmentLine("PARIMIT_BLOCKED_PAYEES", "merchant_pilot_blocked"),
       "",
     ].join("\n");

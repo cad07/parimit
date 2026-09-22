@@ -36,6 +36,12 @@ release.
 - Restricted redacted acceptance reports to the ignored pilot reports
   directory and made report persistence mandatory for a passing run.
 
+### Changed
+
+- Aligned the generated Keycloak pilot allowlist with the bounded AiNxt coffee
+  fixture while keeping the higher-value mobility fixture outside the pilot's
+  per-proposal limit.
+
 ## [0.1.0-alpha.3] - 2026-09-20
 
 ### Added

@@ -246,6 +246,21 @@ curl --fail --silent --show-error http://127.0.0.1:8787/v1/safety | jq
 The discovery document and safety endpoint are process signals, not proof of a
 successful OIDC or end-to-end authorization flow.
 
+### AiNxt adapter compatibility
+
+The generated pilot policy allowlists the adapter's fixed
+`demo-coffee-merchant` fixture. Its INR 499.00 amount is below the pilot's INR
+1,000.00 per-proposal ceiling, so it can reach `AWAITING_APPROVAL` after the
+adapter's own simulation and validation gates. The `demo-mobility-pass`
+fixture remains deliberately outside this profile: INR 1,250.00 exceeds that
+ceiling and must be denied. Both identifiers are fictional; never replace them
+with a live payee in this local profile.
+
+Choose the policy before the Parimit data volume is first initialized. Policy
+configuration is bound into the database recovery root; changing the allowlist
+after initialization requires a new disposable pilot recovery set rather than
+silently reusing the old volume.
+
 ## Run the controlled acceptance
 
 Run the repository's Keycloak pilot helper. It obtains agent and consumer
