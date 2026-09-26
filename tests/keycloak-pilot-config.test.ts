@@ -16,6 +16,8 @@ const workflowUrl = new URL(".github/workflows/keycloak-pilot.yml", repositoryRo
 const dockerIgnoreUrl = new URL(".dockerignore", repositoryRoot);
 const dockerfileUrl = new URL("Dockerfile", repositoryRoot);
 const runnerUrl = new URL("scripts/run-keycloak-pilot.ts", repositoryRoot);
+const bootstrapUrl = new URL("scripts/bootstrap-keycloak-pilot.ts", repositoryRoot);
+const ainxtAdapterUrl = new URL("integrations/ainxt/adapter.ts", repositoryRoot);
 const keycloakReadmeUrl = new URL("deploy/keycloak/README.md", repositoryRoot);
 
 const KEYCLOAK_IMAGE =
@@ -35,6 +37,8 @@ const PARIMIT_ROLES = new Set([
   "parimit-pilot-consumer",
   "parimit-pilot-admin",
 ]);
+const PILOT_ALLOWED_PAYEES =
+  "merchant_pilot_001,merchant_pilot_002,demo-coffee-merchant";
 
 type JsonObject = Record<string, unknown>;
 
@@ -197,6 +201,40 @@ test("Keycloak and Parimit containers are digest-pinned, hardened, TLS-only, and
       assert.equal(assignment[2], "", `${assignment[1]} must be blank in the committed template`);
     }
   }
+});
+
+test("Keycloak policy admits the bounded AiNxt coffee fixture while mobility stays denied", async () => {
+  const [compose, environment, bootstrap, ainxtAdapter, keycloakReadme] = await Promise.all([
+    readFile(composeUrl, "utf8"),
+    readFile(environmentUrl, "utf8"),
+    readFile(bootstrapUrl, "utf8"),
+    readFile(ainxtAdapterUrl, "utf8"),
+    readFile(keycloakReadmeUrl, "utf8"),
+  ]);
+
+  assert.equal(env(environment, "PARIMIT_ALLOWED_PAYEES"), PILOT_ALLOWED_PAYEES);
+  assert.equal(env(environment, "PARIMIT_PER_TX_LIMIT"), "100000");
+  assert.ok(
+    compose.includes(
+      `PARIMIT_ALLOWED_PAYEES: "\${PARIMIT_ALLOWED_PAYEES:-${PILOT_ALLOWED_PAYEES}}"`,
+    ),
+    "Compose must preserve the same synthetic allowlist default",
+  );
+  assert.ok(
+    bootstrap.includes(`"${PILOT_ALLOWED_PAYEES}"`),
+    "bootstrap must generate the same synthetic allowlist",
+  );
+  assert.match(
+    ainxtAdapter,
+    /coffee_order: Object\.freeze\(\{[\s\S]*?minor: "49900"[\s\S]*?payee_reference: "demo-coffee-merchant"/u,
+  );
+  assert.match(
+    ainxtAdapter,
+    /mobility_pass: Object\.freeze\(\{[\s\S]*?minor: "125000"[\s\S]*?payee_reference: "demo-mobility-pass"/u,
+  );
+  assert.match(keycloakReadme, /`demo-coffee-merchant`/u);
+  assert.match(keycloakReadme, /`demo-mobility-pass`[\s\S]*exceeds that\s+ceiling/u);
+  assert.equal(PILOT_ALLOWED_PAYEES.split(",").includes("demo-mobility-pass"), false);
 });
 
 test("realm emits one exact access-token audience and top-level Parimit role claim", async () => {
