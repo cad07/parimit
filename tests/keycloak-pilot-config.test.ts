@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -15,7 +15,9 @@ const decisionUrl = new URL(
 const workflowUrl = new URL(".github/workflows/keycloak-pilot.yml", repositoryRoot);
 const dockerIgnoreUrl = new URL(".dockerignore", repositoryRoot);
 const dockerfileUrl = new URL("Dockerfile", repositoryRoot);
+const packageUrl = new URL("package.json", repositoryRoot);
 const runnerUrl = new URL("scripts/run-keycloak-pilot.ts", repositoryRoot);
+const liveAiNxtSmokeUrl = new URL("scripts/run-live-ainxt-keycloak-smoke.ts", repositoryRoot);
 const bootstrapUrl = new URL("scripts/bootstrap-keycloak-pilot.ts", repositoryRoot);
 const ainxtAdapterUrl = new URL("integrations/ainxt/adapter.ts", repositoryRoot);
 const keycloakReadmeUrl = new URL("deploy/keycloak/README.md", repositoryRoot);
@@ -232,9 +234,103 @@ test("Keycloak policy admits the bounded AiNxt coffee fixture while mobility sta
     ainxtAdapter,
     /mobility_pass: Object\.freeze\(\{[\s\S]*?minor: "125000"[\s\S]*?payee_reference: "demo-mobility-pass"/u,
   );
+  assert.match(ainxtAdapter, /purpose: "Synthetic mobility evaluation"/u);
+  assert.match(ainxtAdapter, /The minor field must remain a quoted JSON string\./u);
   assert.match(keycloakReadme, /`demo-coffee-merchant`/u);
   assert.match(keycloakReadme, /`demo-mobility-pass`[\s\S]*exceeds that\s+ceiling/u);
   assert.equal(PILOT_ALLOWED_PAYEES.split(",").includes("demo-mobility-pass"), false);
+});
+
+test("live AiNxt smoke keeps the agent token in-process and remains non-human", async () => {
+  const [runner, liveSmoke, packageText, keycloakReadme] = await Promise.all([
+    readFile(runnerUrl, "utf8"),
+    readFile(liveAiNxtSmokeUrl, "utf8"),
+    readFile(packageUrl, "utf8"),
+    readFile(keycloakReadmeUrl, "utf8"),
+  ]);
+  const packageJson = object(JSON.parse(packageText) as unknown, "package.json");
+  const scripts = object(packageJson.scripts, "package.json scripts");
+
+  assert.equal(
+    scripts["pilot:ainxt:keycloak"],
+    "node --experimental-strip-types scripts/run-keycloak-pilot.ts --ainxt-proposal-smoke",
+  );
+  assert.equal(
+    scripts["pilot:ainxt:ollama-profile"],
+    "node scripts/ollama-openai-nothink-proxy.mjs",
+  );
+  assert.match(runner, /new AiNxtParimitAdapter\(\{[\s\S]*?accessToken: agentToken/u);
+  assert.match(runner, /timeoutMs: options\.ainxtTimeoutMs/u);
+  assert.doesNotMatch(runner, /PARIMIT_AGENT_ACCESS_TOKEN/u);
+  assert.match(runner, /--expected-ainxt-control-plane-sha/u);
+  assert.match(runner, /120_000/u);
+  assert.match(runner, /Access-token lifetime must be exactly five minutes/u);
+  assert.match(runner, /lsof[\s\S]*?ss[\s\S]*?requireLoopbackOnlyAiNxtBindings/u);
+  assert.match(liveSmoke, /not bound exclusively to loopback/u);
+  assert.match(
+    runner,
+    /mobilityEvidence = await runLiveAiNxtMobilityDenialSmoke[\s\S]*?coffeeEvidence = await runLiveAiNxtCoffeeProposalSmoke/u,
+  );
+  assert.match(runner, /onProposalCreateAttempt:[\s\S]*?coffee_create_attempted = true/u);
+  assert.match(runner, /onProposalCreated:[\s\S]*?coffee_intent_id = createdIntentId/u);
+  assert.match(runner, /reconciliation: liveAiNxtReconciliation \?\? null/u);
+  assert.match(liveSmoke, /LIVE_AINXT_KEYCLOAK_PROPOSAL_SMOKE/u);
+  assert.match(liveSmoke, /interactive_humans: false/u);
+  assert.match(liveSmoke, /approvals_attempted: 0/u);
+  assert.match(liveSmoke, /payment_execution_capability: false/u);
+  assert.match(liveSmoke, /scenario: "mobility_pass"/u);
+  assert.doesNotMatch(
+    liveSmoke,
+    /approveProposal|rejectProposal|issueEnvelope|consumeEnvelope|attachObservation/u,
+  );
+  assert.match(keycloakReadme, /default-thinking `qwen3\.5:4b` took 96\.3 seconds/u);
+  assert.match(
+    keycloakReadme,
+    /stock AiNxt provider timed out at[\s\S]*cannot forward the model's reasoning control/u,
+  );
+  assert.match(keycloakReadme, /`reasoning_effort: none` took 4\.6 seconds/u);
+  assert.match(keycloakReadme, /compatibility process is Parimit code, not an NPCI\/AiNxt capability/u);
+});
+
+test("live AiNxt smoke CLI requires a pin and caps timeout at 120 seconds", () => {
+  const cwd = decodeURIComponent(repositoryRoot.pathname);
+  const runnerPath = decodeURIComponent(runnerUrl.pathname);
+  const run = (...arguments_: string[]) =>
+    spawnSync(
+      process.execPath,
+      ["--experimental-strip-types", runnerPath, ...arguments_],
+      { cwd, encoding: "utf8" },
+    );
+
+  const missingPin = run("--ainxt-proposal-smoke");
+  assert.equal(missingPin.status, 1);
+  assert.match(missingPin.stderr, /requires --expected-ainxt-control-plane-sha/u);
+
+  const unpinned = run(
+    "--ainxt-proposal-smoke",
+    "--expected-ainxt-control-plane-sha",
+    "unpinned",
+  );
+  assert.equal(unpinned.status, 1);
+  assert.match(unpinned.stderr, /exactly 64 lowercase hexadecimal characters/u);
+
+  const arbitraryLabel = run(
+    "--ainxt-proposal-smoke",
+    "--expected-ainxt-control-plane-sha",
+    "reviewed-control-plane",
+  );
+  assert.equal(arbitraryLabel.status, 1);
+  assert.match(arbitraryLabel.stderr, /exactly 64 lowercase hexadecimal characters/u);
+
+  const overMaximum = run(
+    "--ainxt-proposal-smoke",
+    "--expected-ainxt-control-plane-sha",
+    "a".repeat(64),
+    "--ainxt-timeout-ms",
+    "120001",
+  );
+  assert.equal(overMaximum.status, 1);
+  assert.match(overMaximum.stderr, /integer from 1 to 120000/u);
 });
 
 test("realm emits one exact access-token audience and top-level Parimit role claim", async () => {
@@ -502,7 +598,10 @@ test("CI runs only the explicitly workload-scoped live smoke", async () => {
     "src/**",
     "deploy/keycloak/**",
     "scripts/*keycloak-pilot*",
+    "scripts/*ainxt-keycloak-smoke*",
+    "integrations/ainxt/**",
     "tests/keycloak-pilot-config.test.ts",
+    "tests/live-ainxt-keycloak-smoke.test.ts",
   ]) {
     assert.ok(
       workflow.includes(`- "${guardedPath}"`),

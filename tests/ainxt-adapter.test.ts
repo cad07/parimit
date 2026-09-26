@@ -261,7 +261,7 @@ test("AiNxt draft creates one self-bound proposal and replay is idempotent", asy
   const alternateDraft = JSON.stringify({
     amount: { currency: "INR", minor: "125000" },
     payee_reference: "demo-mobility-pass",
-    purpose: "Synthetic pass DEMO-MOBILITY-001",
+    purpose: "Synthetic mobility evaluation",
     on_behalf_of: "demo-customer-1",
     expires_in_seconds: 300,
   });

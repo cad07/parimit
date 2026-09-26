@@ -1,0 +1,10 @@
+version = 1
+
+# Local AiNxt provider profile for the loopback-only Ollama compatibility
+# proxy in scripts/ollama-openai-nothink-proxy.mjs. At the reviewed AiNxt
+# commit, the provider id is also the model name sent upstream.
+[[models.providers]]
+id = "qwen3.5:4b"
+kind = "local"
+base_url = "http://127.0.0.1:11435/v1"
+eligible = ["internal"]

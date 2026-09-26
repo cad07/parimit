@@ -25,6 +25,13 @@ release.
 - Added static and hosted-container checks for the Keycloak profile. Automated
   checks deliberately stop before human approval and cannot be reported as
   interactive pilot acceptance.
+- Added a live AiNxt/Keycloak proposal smoke that keeps the short-lived agent
+  token in-process, pins the observed AiNxt control plane, creates and replays
+  only the synthetic coffee proposal, and proves the mobility fixture is denied
+  through a non-persistent simulation. Human acceptance remains separate.
+- Added a loopback-only `qwen3.5:4b` compatibility process and AiNxt provider
+  profile that apply fixed non-thinking inference controls for the reviewed
+  runtime, with explicit component hashing and no payment or human authority.
 
 ### Security
 

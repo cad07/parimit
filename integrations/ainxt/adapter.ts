@@ -95,11 +95,11 @@ const SYNTHETIC_FIXTURES: Readonly<
   }),
   mobility_pass: Object.freeze({
     instruction:
-      "Draft the fixed fictional mobility pass: INR 1250.00, payee demo-mobility-pass, purpose Synthetic pass DEMO-MOBILITY-001, on behalf of demo-customer-1, expiry 300 seconds.",
+      "Draft the fixed fictional mobility ticket: INR 1250.00, payee demo-mobility-pass, purpose Synthetic mobility evaluation, on behalf of demo-customer-1, expiry 300 seconds.",
     expected: Object.freeze({
       amount: Object.freeze({ currency: "INR" as const, minor: "125000" }),
       payee_reference: "demo-mobility-pass",
-      purpose: "Synthetic pass DEMO-MOBILITY-001",
+      purpose: "Synthetic mobility evaluation",
       on_behalf_of: "demo-customer-1",
       expires_in_seconds: 300,
     }),
@@ -262,6 +262,7 @@ function draftingPrompt(scenario: AiNxtSyntheticScenario): string {
     "The scenario below is a fixed code-owned fixture, not user-provided payment data.",
     "Return exactly one JSON object and no markdown with this shape:",
     '{"amount":{"currency":"INR","minor":"positive decimal paise"},"payee_reference":"demo-opaque-alias","purpose":"Synthetic ...","on_behalf_of":"demo-optional-id","expires_in_seconds":300}',
+    "The minor field must remain a quoted JSON string.",
     `expires_in_seconds must be from 1 to ${MAX_PILOT_EXPIRY_SECONDS}.`,
     "payee_reference and optional on_behalf_of must start with demo-.",
     `SYNTHETIC_SCENARIO=${JSON.stringify({

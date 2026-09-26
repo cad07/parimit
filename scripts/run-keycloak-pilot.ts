@@ -9,12 +9,31 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
+import { AiNxtParimitAdapter } from "../integrations/ainxt/adapter.ts";
+import {
+  LIVE_AINXT_KEYCLOAK_REPORT_CLASSIFICATION,
+  assembleLiveAiNxtKeycloakSmokeEvidence,
+  liveAiNxtSmokeIdempotencyKeys,
+  requireExpectedControlPlaneSha,
+  requireLoopbackOnlyAiNxtBindings,
+  runLiveAiNxtCoffeeProposalSmoke,
+  runLiveAiNxtMobilityDenialSmoke,
+} from "./run-live-ainxt-keycloak-smoke.ts";
+import type {
+  LiveAiNxtCoffeeEvidence,
+  LiveAiNxtKeycloakSmokeEvidence,
+  LiveAiNxtMobilityEvidence,
+} from "./run-live-ainxt-keycloak-smoke.ts";
+
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
 
 interface Options {
   workloadSmoke: boolean;
+  ainxtProposalSmoke: boolean;
+  expectedAiNxtControlPlaneSha?: string;
+  ainxtTimeoutMs: number;
   composeFile: string;
   environmentFile: string;
   reportFile: string;
@@ -60,6 +79,7 @@ const reportsDirectory = join(runtimeDirectory, "reports");
 const defaultEnvironmentFile = join(deploymentDirectory, ".env.local");
 const defaultComposeFile = join(deploymentDirectory, "docker-compose.yml");
 const defaultReportFile = join(reportsDirectory, "keycloak-pilot-report.json");
+const defaultAiNxtReportFile = join(reportsDirectory, "live-ainxt-keycloak-smoke-report.json");
 const caCertificateFile = join(runtimeDirectory, "tls", "local-ca.pem");
 const humanLoginFile = join(runtimeDirectory, "human-logins.txt");
 
@@ -98,6 +118,14 @@ run the complete fictional acceptance flow.
 
   --workload-smoke       Non-interactive agent/consumer authentication smoke only.
                          It never approves and is not human E2E acceptance.
+  --ainxt-proposal-smoke Start the canonical stack and run the live AiNxt model
+                         through a real Keycloak agent token to proposal-only
+                         Parimit checks. It never starts a human decision flow.
+  --expected-ainxt-control-plane-sha SHA
+                         Required with --ainxt-proposal-smoke. The exact
+                         64-character lowercase SHA-256 value to require.
+  --ainxt-timeout-ms N   AiNxt request timeout for the proposal smoke only
+                         (1-120000; default 120000).
   --report PATH          Override the redacted JSON report path.
   --help                 Show this help text.
 `;
@@ -109,19 +137,60 @@ function requireArgument(arguments_: readonly string[], index: number, option: s
   return value;
 }
 
+function boundedPositiveInteger(value: string, option: string, maximum: number): number {
+  if (!/^[1-9][0-9]*$/u.test(value)) {
+    throw new PilotFailure("INVALID_ARGUMENT", `${option} requires an integer from 1 to ${maximum}`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed > maximum) {
+    throw new PilotFailure("INVALID_ARGUMENT", `${option} requires an integer from 1 to ${maximum}`);
+  }
+  return parsed;
+}
+
 function parseArguments(arguments_: readonly string[]): Options {
-  const options: Options = {
-    workloadSmoke: false,
-    composeFile: defaultComposeFile,
-    environmentFile: defaultEnvironmentFile,
-    reportFile: defaultReportFile,
-  };
+  let workloadSmoke = false;
+  let ainxtProposalSmoke = false;
+  let expectedAiNxtControlPlaneSha: string | undefined;
+  let ainxtTimeoutMs = 120_000;
+  let ainxtTimeoutWasSet = false;
+  let reportFile: string | undefined;
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index]!;
     if (argument === "--workload-smoke") {
-      options.workloadSmoke = true;
+      if (ainxtProposalSmoke) {
+        throw new PilotFailure("INVALID_ARGUMENT", "Select only one non-interactive smoke mode");
+      }
+      workloadSmoke = true;
+    } else if (argument === "--ainxt-proposal-smoke") {
+      if (workloadSmoke) {
+        throw new PilotFailure("INVALID_ARGUMENT", "Select only one non-interactive smoke mode");
+      }
+      ainxtProposalSmoke = true;
+    } else if (argument === "--expected-ainxt-control-plane-sha") {
+      if (expectedAiNxtControlPlaneSha !== undefined) {
+        throw new PilotFailure("INVALID_ARGUMENT", `${argument} may be supplied only once`);
+      }
+      expectedAiNxtControlPlaneSha = requireExpectedControlPlaneSha(
+        requireArgument(arguments_, index, argument),
+      );
+      index += 1;
+    } else if (argument === "--ainxt-timeout-ms") {
+      if (ainxtTimeoutWasSet) {
+        throw new PilotFailure("INVALID_ARGUMENT", `${argument} may be supplied only once`);
+      }
+      ainxtTimeoutMs = boundedPositiveInteger(
+        requireArgument(arguments_, index, argument),
+        argument,
+        120_000,
+      );
+      ainxtTimeoutWasSet = true;
+      index += 1;
     } else if (argument === "--report") {
-      options.reportFile = resolve(repositoryRoot, requireArgument(arguments_, index, argument));
+      if (reportFile !== undefined) {
+        throw new PilotFailure("INVALID_ARGUMENT", `${argument} may be supplied only once`);
+      }
+      reportFile = resolve(repositoryRoot, requireArgument(arguments_, index, argument));
       index += 1;
     } else if (argument === "--help" || argument === "-h") {
       process.stdout.write(usage());
@@ -130,8 +199,30 @@ function parseArguments(arguments_: readonly string[]): Options {
       throw new PilotFailure("INVALID_ARGUMENT", `Unknown argument: ${argument}`);
     }
   }
-  assertManagedReportPath(options.reportFile);
-  return options;
+  if (ainxtProposalSmoke && expectedAiNxtControlPlaneSha === undefined) {
+    throw new PilotFailure(
+      "INVALID_ARGUMENT",
+      "--ainxt-proposal-smoke requires --expected-ainxt-control-plane-sha",
+    );
+  }
+  if (!ainxtProposalSmoke && (expectedAiNxtControlPlaneSha !== undefined || ainxtTimeoutWasSet)) {
+    throw new PilotFailure(
+      "INVALID_ARGUMENT",
+      "AiNxt control-plane and timeout options require --ainxt-proposal-smoke",
+    );
+  }
+  const resolvedReportFile =
+    reportFile ?? (ainxtProposalSmoke ? defaultAiNxtReportFile : defaultReportFile);
+  assertManagedReportPath(resolvedReportFile);
+  return {
+    workloadSmoke,
+    ainxtProposalSmoke,
+    ...(expectedAiNxtControlPlaneSha === undefined ? {} : { expectedAiNxtControlPlaneSha }),
+    ainxtTimeoutMs,
+    composeFile: defaultComposeFile,
+    environmentFile: defaultEnvironmentFile,
+    reportFile: resolvedReportFile,
+  };
 }
 
 function assertManagedReportPath(path: string): void {
@@ -372,7 +463,10 @@ function verifyAccessToken(
   const now = Math.floor(Date.now() / 1_000);
   expect((claims.exp as number) > now, "Access token is expired");
   expect((claims.iat as number) <= now + 60, "Access token was issued in the future");
-  expect((claims.exp as number) - (claims.iat as number) <= 3_600, "Access-token lifetime exceeds one hour");
+  expect(
+    (claims.exp as number) - (claims.iat as number) === 300,
+    "Access-token lifetime must be exactly five minutes",
+  );
   const roles = mappedTokenRoles(claims);
   expect(roles.length === 1 && roles[0] === expectedRole, `Access token must map only to ${expectedRole}`);
 
@@ -502,6 +596,44 @@ function runningPilotServices(): string[] {
     .map((service) => service.trim())
     .filter((service) => service.length > 0)
     .sort();
+}
+
+function ainxtLoopbackListenerBindings(): string[] {
+  let command: string;
+  let arguments_: string[];
+  if (process.platform === "darwin") {
+    command = "lsof";
+    arguments_ = ["-nP", "-a", "-iTCP:8080", "-sTCP:LISTEN", "-F", "n"];
+  } else if (process.platform === "linux") {
+    command = "ss";
+    arguments_ = ["-H", "-ltn"];
+  } else {
+    throw new PilotFailure(
+      "AINXT_BINDING_INSPECTION_UNSUPPORTED",
+      "Cannot prove the AiNxt listener binding on this operating system",
+    );
+  }
+
+  const result = spawnSync(command, arguments_, {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error || result.status !== 0) {
+    throw new PilotFailure(
+      "AINXT_BINDING_INSPECTION_FAILED",
+      `Could not inspect the AiNxt listener with ${command}`,
+    );
+  }
+
+  try {
+    return requireLoopbackOnlyAiNxtBindings(process.platform, String(result.stdout));
+  } catch (error) {
+    throw new PilotFailure(
+      "AINXT_BINDING_UNSAFE",
+      describeError(error, "AiNxt listener binding could not be proven safe"),
+    );
+  }
 }
 
 async function sleep(milliseconds: number): Promise<void> {
@@ -879,6 +1011,8 @@ async function execute(): Promise<void> {
   let sourceGitCommit: string | null = null;
   let repositoryWorkingTreeDirty: boolean | null = null;
   let effectiveComposeSha256: string | null = null;
+  let liveAiNxtEvidence: LiveAiNxtKeycloakSmokeEvidence | undefined;
+  let liveAiNxtReconciliation: JsonObject | undefined;
 
   async function check(name: string, action: () => Promise<JsonValue | void>): Promise<void> {
     try {
@@ -897,7 +1031,11 @@ async function execute(): Promise<void> {
     const ca = await readFile(caCertificateFile);
     const requiredType = environment.get("PARIMIT_OIDC_REQUIRED_TYP") || "JWT";
 
-    if (!options.workloadSmoke && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+    if (
+      !options.workloadSmoke &&
+      !options.ainxtProposalSmoke &&
+      (!process.stdin.isTTY || !process.stdout.isTTY)
+    ) {
       throw new PilotFailure(
         "INTERACTIVE_TERMINAL_REQUIRED",
         "Full acceptance requires an interactive terminal for two browser-mediated human logins",
@@ -1047,6 +1185,87 @@ async function execute(): Promise<void> {
         approvals_attempted: 0,
         state_mutations: 0,
         classification: "WORKLOAD_SMOKE_ONLY",
+      }));
+      reportStatus = "PASS";
+      return;
+    }
+
+    if (options.ainxtProposalSmoke) {
+      const expectedControlPlaneSha = options.expectedAiNxtControlPlaneSha!;
+      await check("Live AiNxt smoke requires one exact pinned control plane", async () => ({
+        expected_control_plane_sha: requireExpectedControlPlaneSha(expectedControlPlaneSha),
+        unpinned_accepted: false,
+      }));
+      await check("AiNxt trusted-gateway listener is loopback-only", async () => ({
+        bindings: ainxtLoopbackListenerBindings(),
+        network_reachable: false,
+      }));
+
+      const idempotencyKeys = liveAiNxtSmokeIdempotencyKeys(runId);
+      liveAiNxtReconciliation = {
+        coffee_idempotency_key: idempotencyKeys.coffee,
+        mobility_idempotency_key: idempotencyKeys.mobility,
+        coffee_create_attempted: false,
+        coffee_intent_id: null,
+      };
+
+      const adapter = new AiNxtParimitAdapter({
+        ainxtBaseUrl: "http://127.0.0.1:8080",
+        parimitBaseUrl,
+        accessToken: agentToken,
+        ainxtDepartment: "parimit-pilot",
+        timeoutMs: options.ainxtTimeoutMs,
+      });
+      let mobilityEvidence!: LiveAiNxtMobilityEvidence;
+      await check("Mobility fixture is denied by simulation without creation", async () => {
+        mobilityEvidence = await runLiveAiNxtMobilityDenialSmoke(adapter, {
+          runId,
+          expectedControlPlaneSha,
+        });
+        return {
+          policy_allowed: mobilityEvidence.policy_allowed,
+          policy_reasons: mobilityEvidence.policy_reasons,
+          simulation_persisted: mobilityEvidence.simulation_persisted,
+          creation_attempted: mobilityEvidence.creation_attempted,
+          control_plane_sha: mobilityEvidence.control_plane_sha,
+          moves_money: false,
+        };
+      });
+      let coffeeEvidence!: LiveAiNxtCoffeeEvidence;
+      await check("Coffee preflight passes before one proposal and exact replay", async () => {
+        coffeeEvidence = await runLiveAiNxtCoffeeProposalSmoke(adapter, {
+          runId,
+          expectedControlPlaneSha,
+          onProposalCreateAttempt: () => {
+            liveAiNxtReconciliation!.coffee_create_attempted = true;
+          },
+          onProposalCreated: (createdIntentId) => {
+            intentId = createdIntentId;
+            liveAiNxtReconciliation!.coffee_intent_id = createdIntentId;
+          },
+        });
+        intentId = coffeeEvidence.intent_id;
+        return {
+          idempotency_key: coffeeEvidence.idempotency_key,
+          intent_id: coffeeEvidence.intent_id,
+          status: coffeeEvidence.status,
+          approval_count: coffeeEvidence.approval_count,
+          required_approvals: coffeeEvidence.required_approvals,
+          proposal_persisted: coffeeEvidence.proposal_persisted,
+          same_process_idempotent_replay: coffeeEvidence.same_process_idempotent_replay,
+          control_plane_sha: coffeeEvidence.control_plane_sha,
+          moves_money: false,
+        };
+      });
+      liveAiNxtEvidence = assembleLiveAiNxtKeycloakSmokeEvidence(
+        expectedControlPlaneSha,
+        coffeeEvidence,
+        mobilityEvidence,
+      );
+      await check("Live AiNxt smoke makes no human or execution call", async () => ({
+        interactive_humans: false,
+        approvals_attempted: 0,
+        payment_execution_capability: false,
       }));
       reportStatus = "PASS";
       return;
@@ -1353,7 +1572,11 @@ async function execute(): Promise<void> {
     const completedAt = new Date().toISOString();
     const report: JsonObject = {
       schema_version: "parimit-keycloak-pilot-report-v1",
-      classification: options.workloadSmoke ? "WORKLOAD_SMOKE_ONLY" : "INTERACTIVE_HUMAN_ACCEPTANCE",
+      classification: options.ainxtProposalSmoke
+        ? LIVE_AINXT_KEYCLOAK_REPORT_CLASSIFICATION
+        : options.workloadSmoke
+          ? "WORKLOAD_SMOKE_ONLY"
+          : "INTERACTIVE_HUMAN_ACCEPTANCE",
       status: reportStatus,
       run_id: runId,
       started_at: startedAt,
@@ -1374,6 +1597,21 @@ async function execute(): Promise<void> {
         intent_id: intentId ?? null,
         payment_execution_capability: false,
       },
+      ...(options.ainxtProposalSmoke
+        ? {
+            interactive_humans: false,
+            approvals_attempted: 0,
+            payment_execution_capability: false,
+            ainxt: (liveAiNxtEvidence ?? {
+              classification: LIVE_AINXT_KEYCLOAK_REPORT_CLASSIFICATION,
+              expected_control_plane_sha: options.expectedAiNxtControlPlaneSha!,
+              interactive_humans: false,
+              approvals_attempted: 0,
+              payment_execution_capability: false,
+              reconciliation: liveAiNxtReconciliation ?? null,
+            }) as unknown as JsonValue,
+          }
+        : {}),
       checks: checks as unknown as JsonValue,
       contains_sensitive_values: false,
       ...(safeFailure === undefined ? {} : { failure: safeFailure }),
@@ -1396,6 +1634,11 @@ async function execute(): Promise<void> {
 
 execute().catch((error: unknown) => {
   const message = describeError(error, "Unknown pilot failure");
-  process.stderr.write(`Keycloak pilot ${process.argv.includes("--workload-smoke") ? "smoke" : "acceptance"} failed: ${message}\n`);
+  const mode = process.argv.includes("--ainxt-proposal-smoke")
+    ? "live AiNxt proposal smoke"
+    : process.argv.includes("--workload-smoke")
+      ? "workload smoke"
+      : "acceptance";
+  process.stderr.write(`Keycloak pilot ${mode} failed: ${message}\n`);
   process.exitCode = 1;
 });
