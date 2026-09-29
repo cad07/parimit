@@ -272,8 +272,10 @@ the bundled provider profile into AiNxt as documented in the
 The compatibility process is Parimit code, not an NPCI/AiNxt capability; its
 digest must be included in the reviewed deployment manifest.
 
-Then run the canonical combined smoke with the exact same non-secret
-control-plane value:
+Then run the canonical combined smoke with the exact reviewed 40-character
+AiNxt control-repository commit. Keep the separate deployment manifest and its
+component digests as run evidence; do not use its SHA-256 in this protocol
+field:
 
 ```sh
 npm run pilot:ainxt:keycloak -- \
@@ -296,10 +298,10 @@ The `mobility_pass` fixture is simulation-only: policy must reject both its
 amount and payee, and the runner makes no create call. Mobility denial runs
 first; the coffee model/policy preflight then completes before the first create.
 The observed AiNxt SSE control-plane value must exactly match the expected
-64-character lowercase SHA-256 value; labels and `unpinned` are rejected. This
-is a configuration-state assertion, not binary or model attestation; retain the reviewed AiNxt source commit,
-runtime binary digest, configuration digest, and local model digest as separate
-run evidence.
+40-character lowercase control-repository commit; labels and `unpinned` are
+rejected. This is a source-revision assertion reported by the runtime, not
+binary, model, or configuration attestation. Retain the runtime binary digest,
+configuration digest, local model digest, and deployment manifest separately.
 
 The adapter timeout defaults to the allowed maximum of 120 seconds and may only
 be narrowed with `--ainxt-timeout-ms`. This is deliberate: in one local

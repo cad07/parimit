@@ -13,7 +13,7 @@ const AINXT_URL = "http://127.0.0.1:8080";
 const PARIMIT_URL = "http://127.0.0.1:8787";
 const TOKEN = "header.payload.signature";
 const ACTOR_ID = `oidc:${"a".repeat(64)}`;
-const CONTROL_PLANE_SHA = "pilot-control-plane-2026-09-22";
+const CONTROL_PLANE_SHA = AINXT_OS_REVIEWED_COMMIT;
 
 interface CapturedCall {
   url: string;

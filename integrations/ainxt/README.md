@@ -13,8 +13,11 @@ This adapter's wire-contract review is anchored to AiNxt OS commit
 [`454fb09cf1fff2bedb5aa3f4f1c391e4915f33dd`](https://github.com/npci/ainxt-os/tree/454fb09cf1fff2bedb5aa3f4f1c391e4915f33dd).
 The repository did not expose a matching release tag when reviewed. This is a
 source-review anchor, not runtime binary attestation. The adapter separately
-validates and reports AiNxt's SSE `control_plane_sha`, which identifies the
-deployment's control-plane/config state rather than its source revision.
+validates and reports AiNxt's SSE `control_plane_sha`. In the reviewed upstream
+contract, that field is the control-repository commit to which the turn is
+pinned. Parimit therefore requires the exact 40-character lowercase reviewed
+AiNxt source commit; it does not repurpose this field for a deployment-manifest
+digest or treat it as runtime binary attestation.
 
 The adapter uses AiNxt's documented `POST /v1/chat` Server-Sent Events contract.
 It does not install a native AiNxt tool. The current public AiNxt runtime requires
@@ -112,12 +115,13 @@ an external identity provider, Keycloak acceptance, or external/NPCI acceptance.
 
 First run the reviewed AiNxt source at `http://127.0.0.1:8080` with a working
 model/provider, `AINXT_TRUSTED_GATEWAY=1`, and an operator-selected
-`AINXT_CONTROL_PLANE_SHA`. Stock offline mode returns explanatory prose, which
+`AINXT_CONTROL_PLANE_SHA` equal to that checkout's exact 40-character commit.
+Stock offline mode returns explanatory prose, which
 the adapter intentionally rejects instead of treating as a draft. Also run an
 OIDC-enabled Parimit instance. Load the dedicated agent token through a local
 secret mechanism rather than source, prompts, logs, or retained shell history.
 
-### Reproducible local Ollama profile
+### Reviewed local Ollama profile
 
 The repository includes an optional profile for Ollama's `qwen3.5:4b`. Pull and
 verify that exact model through Ollama, then start the loopback-only compatibility
@@ -136,6 +140,10 @@ on `127.0.0.1:11434`. It injects fixed `reasoning_effort: none` and
 those OpenAI-compatible fields and the model's default thinking mode exceeded
 AiNxt's provider timeout in local testing.
 
+The process allowlists the model tag, not its content digest. Before a reviewed
+run, the operator must separately resolve and record the local Ollama model
+digest. A matching mutable tag alone is not model-byte attestation.
+
 This process is a Parimit-local compatibility component. It is not supplied by
 NPCI, AiNxt, or Ollama, and it adds no payment capability. Treat its source
 digest and the bundled
@@ -147,7 +155,7 @@ configuration and keep both listeners on loopback:
 
 ```sh
 export AINXT_TRUSTED_GATEWAY=1
-export AINXT_CONTROL_PLANE_SHA='<sha256-of-reviewed-deployment-manifest>'
+export AINXT_CONTROL_PLANE_SHA='454fb09cf1fff2bedb5aa3f4f1c391e4915f33dd'
 
 ./target/release/ainxt-runtimed \
   --config config.toml \
@@ -159,13 +167,12 @@ export AINXT_CONTROL_PLANE_SHA='<sha256-of-reviewed-deployment-manifest>'
   --config '<path-to-parimit>/integrations/ainxt/ollama-qwen3.5-4b.toml'
 ```
 
-The non-secret deployment manifest should bind at least the reviewed AiNxt
-source commit, AiNxt runtime-binary digest, exact Ollama model digest, profile
-digest, and compatibility-process digest. Use the SHA-256 of one canonical
-serialization as `AINXT_CONTROL_PLANE_SHA`, retain the manifest with the run
-evidence, and pass that exact value to the combined runner. The SSE value is a
-configuration-state assertion; it is not a substitute for those individual
-attestations.
+Separately retain a non-secret deployment manifest binding at least the reviewed
+AiNxt source commit, AiNxt runtime-binary digest, exact Ollama model digest,
+profile digest, and compatibility-process digest. Do not place that manifest's
+SHA-256 in `AINXT_CONTROL_PLANE_SHA`: upstream defines the SSE field as the
+control-repository commit. The manifest and individual component hashes remain
+separate run evidence.
 
 For the repository's local Keycloak profile, do not manually export a token.
 Use the canonical combined runner, which obtains and verifies the short-lived
@@ -176,7 +183,8 @@ npm run pilot:ainxt:keycloak -- \
   --expected-ainxt-control-plane-sha '<exact-AiNxt-control-plane-SHA>'
 ```
 
-It requires an exact 64-character lowercase control-plane SHA-256 match, gives
+It requires an exact 40-character lowercase AiNxt control-repository commit,
+matching the reviewed source anchor above, and gives
 the local model up to 120 seconds, proves the port 8080 listener is
 loopback-only, completes the
 denied mobility simulation and allowed coffee preflight before any create, then

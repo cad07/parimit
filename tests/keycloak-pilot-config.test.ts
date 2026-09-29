@@ -312,7 +312,7 @@ test("live AiNxt smoke CLI requires a pin and caps timeout at 120 seconds", () =
     "unpinned",
   );
   assert.equal(unpinned.status, 1);
-  assert.match(unpinned.stderr, /exactly 64 lowercase hexadecimal characters/u);
+  assert.match(unpinned.stderr, /exactly 40 lowercase hexadecimal characters/u);
 
   const arbitraryLabel = run(
     "--ainxt-proposal-smoke",
@@ -320,12 +320,12 @@ test("live AiNxt smoke CLI requires a pin and caps timeout at 120 seconds", () =
     "reviewed-control-plane",
   );
   assert.equal(arbitraryLabel.status, 1);
-  assert.match(arbitraryLabel.stderr, /exactly 64 lowercase hexadecimal characters/u);
+  assert.match(arbitraryLabel.stderr, /exactly 40 lowercase hexadecimal characters/u);
 
   const overMaximum = run(
     "--ainxt-proposal-smoke",
     "--expected-ainxt-control-plane-sha",
-    "a".repeat(64),
+    "a".repeat(40),
     "--ainxt-timeout-ms",
     "120001",
   );

@@ -342,9 +342,7 @@ function parseSse(body: string, expectedSession: string, expectedTurn: string): 
       record.ts.length > 128 ||
       /\p{Cc}/u.test(record.ts) ||
       typeof record.control_plane_sha !== "string" ||
-      record.control_plane_sha.length === 0 ||
-      record.control_plane_sha.length > 128 ||
-      /\p{Cc}/u.test(record.control_plane_sha) ||
+      !/^[0-9a-f]{40}$/u.test(record.control_plane_sha) ||
       typeof record.type !== "string"
     ) {
       throw adapterError("AINXT_RESPONSE_REFUSED", "AiNxt SSE envelope failed validation");
