@@ -261,6 +261,70 @@ configuration is bound into the database recovery root; changing the allowlist
 after initialization requires a new disposable pilot recovery set rather than
 silently reusing the old volume.
 
+### Run the live AiNxt proposal smoke
+
+Start the reviewed AiNxt runtime separately on `127.0.0.1:8080` with a real
+model/provider, `AINXT_TRUSTED_GATEWAY=1`, and an explicit
+`AINXT_CONTROL_PLANE_SHA`. Keep that listener on loopback. For the repository's
+tested `qwen3.5:4b` setup, first run the local compatibility process and layer
+the bundled provider profile into AiNxt as documented in the
+[adapter guide](../../integrations/ainxt/README.md#reproducible-local-ollama-profile).
+The compatibility process is Parimit code, not an NPCI/AiNxt capability; its
+digest must be included in the reviewed deployment manifest.
+
+Then run the canonical combined smoke with the exact same non-secret
+control-plane value:
+
+```sh
+npm run pilot:ainxt:keycloak -- \
+  --expected-ainxt-control-plane-sha '<exact-AiNxt-control-plane-SHA>'
+```
+
+The command rebuilds and starts the canonical Keycloak/Parimit Compose stack,
+obtains a fresh five-minute `parimit-agent-workload` token over the pinned local
+CA, verifies its signature, exact claims, and exact 300-second lifetime, and
+passes it directly to the adapter in the same Node process. The bearer token is
+never exported to the shell, forwarded to AiNxt, printed, or written to the
+report. Before using it with the adapter, the runner inspects TCP port 8080 with
+the host's `lsof` (macOS) or `ss` (Linux) and fails closed unless every observed
+listener is exactly loopback-bound. This proves the observed binding, not the
+AiNxt process environment or runtime binary.
+
+The positive fixture must produce one agent-owned `coffee_order` proposal in
+`AWAITING_APPROVAL` with zero approvals and one same-process idempotent replay.
+The `mobility_pass` fixture is simulation-only: policy must reject both its
+amount and payee, and the runner makes no create call. Mobility denial runs
+first; the coffee model/policy preflight then completes before the first create.
+The observed AiNxt SSE control-plane value must exactly match the expected
+64-character lowercase SHA-256 value; labels and `unpinned` are rejected. This
+is a configuration-state assertion, not binary or model attestation; retain the reviewed AiNxt source commit,
+runtime binary digest, configuration digest, and local model digest as separate
+run evidence.
+
+The adapter timeout defaults to the allowed maximum of 120 seconds and may only
+be narrowed with `--ainxt-timeout-ms`. This is deliberate: in one local
+development observation, stock default-thinking `qwen3.5:4b` took 96.3 seconds
+to produce the exact coffee JSON, while the stock AiNxt provider timed out at
+60 seconds because it cannot forward the model's reasoning control. A direct
+Ollama request with `reasoning_effort: none` took 4.6 seconds. With the disclosed
+local compatibility process injecting that control, separate live AiNxt calls
+completed in approximately 5.7 seconds for coffee and 4.0 seconds for mobility.
+These single-machine observations are not latency guarantees or substitutes for
+the canonical combined smoke; it still fails closed after 120 seconds.
+
+The redacted report is written separately to
+`deploy/keycloak/runtime/reports/live-ainxt-keycloak-smoke-report.json` and is
+classified `LIVE_AINXT_KEYCLOAK_PROPOSAL_SMOKE`. It explicitly records
+`interactive_humans: false`, `approvals_attempted: 0`, and
+`payment_execution_capability: false`. A failed report retains only the
+non-secret idempotency keys and any already-returned intent identifier needed
+to reconcile a proposal; it never retains a bearer token or model prompt.
+
+This smoke ends at `AWAITING_APPROVAL`. It is not human acceptance. The
+interactive command below remains separate and creates its own fictional
+dual-approval proposal; it does not silently approve or continue the AiNxt
+proposal.
+
 ## Run the controlled acceptance
 
 Run the repository's Keycloak pilot helper. It obtains agent and consumer

@@ -122,8 +122,15 @@ The acceptance runner requires a person to complete the reviewer and admin
 device logins and to confirm each exact fictional proposal before a decision.
 For CI or connectivity diagnostics, `npm run pilot:keycloak:smoke` exercises
 workload authentication only; it never approves a proposal and is not human
-acceptance. See [`deploy/keycloak/README.md`](deploy/keycloak/README.md) before
-running or resetting the profile.
+acceptance. With a separately running, loopback-only AiNxt model runtime,
+`npm run pilot:ainxt:keycloak -- --expected-ainxt-control-plane-sha '<exact-AiNxt-control-plane-SHA>'`
+keeps the real Keycloak agent token in-process and proves only the bounded path
+through one `AWAITING_APPROVAL` proposal and a policy-denied simulation. It
+never performs a human decision and is not payment integration. See
+[`integrations/ainxt/README.md`](integrations/ainxt/README.md) for the disclosed
+local Ollama compatibility profile and
+[`deploy/keycloak/README.md`](deploy/keycloak/README.md) before running or
+resetting the identity profile.
 
 ## Configuration
 

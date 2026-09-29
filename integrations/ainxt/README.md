@@ -117,12 +117,84 @@ the adapter intentionally rejects instead of treating as a draft. Also run an
 OIDC-enabled Parimit instance. Load the dedicated agent token through a local
 secret mechanism rather than source, prompts, logs, or retained shell history.
 
+### Reproducible local Ollama profile
+
+The repository includes an optional profile for Ollama's `qwen3.5:4b`. Pull and
+verify that exact model through Ollama, then start the loopback-only compatibility
+process in one terminal:
+
+```sh
+npm run pilot:ainxt:ollama-profile
+```
+
+It listens only on `127.0.0.1:11435`, accepts only
+`POST /v1/chat/completions` for the exact `qwen3.5:4b` model, rebuilds the
+upstream HTTP headers without forwarding incoming headers such as
+`Authorization` or `Cookie`, caps request bodies, and forwards only to Ollama
+on `127.0.0.1:11434`. It injects fixed `reasoning_effort: none` and
+`temperature: 0` controls because the reviewed AiNxt runtime does not forward
+those OpenAI-compatible fields and the model's default thinking mode exceeded
+AiNxt's provider timeout in local testing.
+
+This process is a Parimit-local compatibility component. It is not supplied by
+NPCI, AiNxt, or Ollama, and it adds no payment capability. Treat its source
+digest and the bundled
+[`ollama-qwen3.5-4b.toml`](ollama-qwen3.5-4b.toml) digest as reviewed deployment
+inputs. The profile permits only AiNxt's `internal` data class.
+
+From a reviewed AiNxt checkout, layer the repository profile after AiNxt's base
+configuration and keep both listeners on loopback:
+
+```sh
+export AINXT_TRUSTED_GATEWAY=1
+export AINXT_CONTROL_PLANE_SHA='<sha256-of-reviewed-deployment-manifest>'
+
+./target/release/ainxt-runtimed \
+  --config config.toml \
+  --config '<path-to-parimit>/integrations/ainxt/ollama-qwen3.5-4b.toml' \
+  --check
+
+./target/release/ainxt-runtimed \
+  --config config.toml \
+  --config '<path-to-parimit>/integrations/ainxt/ollama-qwen3.5-4b.toml'
+```
+
+The non-secret deployment manifest should bind at least the reviewed AiNxt
+source commit, AiNxt runtime-binary digest, exact Ollama model digest, profile
+digest, and compatibility-process digest. Use the SHA-256 of one canonical
+serialization as `AINXT_CONTROL_PLANE_SHA`, retain the manifest with the run
+evidence, and pass that exact value to the combined runner. The SSE value is a
+configuration-state assertion; it is not a substitute for those individual
+attestations.
+
+For the repository's local Keycloak profile, do not manually export a token.
+Use the canonical combined runner, which obtains and verifies the short-lived
+workload token and passes it directly to the adapter in the same process:
+
+```sh
+npm run pilot:ainxt:keycloak -- \
+  --expected-ainxt-control-plane-sha '<exact-AiNxt-control-plane-SHA>'
+```
+
+It requires an exact 64-character lowercase control-plane SHA-256 match, gives
+the local model up to 120 seconds, proves the port 8080 listener is
+loopback-only, completes the
+denied mobility simulation and allowed coffee preflight before any create, then
+creates and replays only the allowed coffee proposal. It never begins a human
+login or approval flow. See the
+[Keycloak pilot instructions](../../deploy/keycloak/README.md#run-the-live-ainxt-proposal-smoke).
+
+The environment-driven CLI below remains available for a separately managed
+OIDC deployment whose operator already has a reviewed local secret-injection
+mechanism. It is not the recommended Keycloak pilot path.
+
 ```sh
 export AINXT_URL=http://127.0.0.1:8080
 export PARIMIT_URL=http://127.0.0.1:8787
-export PARIMIT_AGENT_ACCESS_TOKEN='loaded-from-local-secret-store'
 export PARIMIT_AINXT_SCENARIO=coffee_order
 export PARIMIT_AINXT_IDEMPOTENCY_KEY='ainxt-demo-2026-09-22-001'
+# Have the reviewed process supervisor inject PARIMIT_AGENT_ACCESS_TOKEN only
+# into this child process; do not export it into a long-lived shell.
 npm run demo:ainxt
 ```
 
