@@ -355,7 +355,7 @@ test("AiNxt SSE envelope, ordering, turn binding, completion, and control-plane 
       return withoutTurn;
     }),
     (frames) => frames.map((frame, index) =>
-      index === 1 ? { ...frame, control_plane_sha: "changed-mid-turn" } : frame),
+      index === 1 ? { ...frame, control_plane_sha: "b".repeat(40) } : frame),
     (frames) => frames.map((frame, index) =>
       index === 2 ? { ...frame, outcome: "capped" } : frame),
     (frames) => [

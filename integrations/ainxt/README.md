@@ -15,8 +15,11 @@ The repository did not expose a matching release tag when reviewed. This is a
 source-review anchor, not runtime binary attestation. The adapter separately
 validates and reports AiNxt's SSE `control_plane_sha`. In the reviewed upstream
 contract, that field is the control-repository commit to which the turn is
-pinned. Parimit therefore requires the exact 40-character lowercase reviewed
-AiNxt source commit; it does not repurpose this field for a deployment-manifest
+pinned. Upstream carries it as a string; Parimit applies a stricter local policy
+requiring a canonical full 40-character lowercase Git object identifier. For
+the study below, the reviewed AiNxt checkout was deliberately designated as the
+control repository, so its source-review and control-repository commits are the
+same value. Parimit does not repurpose this field for a deployment-manifest
 digest or treat it as runtime binary attestation.
 
 The adapter uses AiNxt's documented `POST /v1/chat` Server-Sent Events contract.
@@ -115,7 +118,8 @@ an external identity provider, Keycloak acceptance, or external/NPCI acceptance.
 
 First run the reviewed AiNxt source at `http://127.0.0.1:8080` with a working
 model/provider, `AINXT_TRUSTED_GATEWAY=1`, and an operator-selected
-`AINXT_CONTROL_PLANE_SHA` equal to that checkout's exact 40-character commit.
+`AINXT_CONTROL_PLANE_SHA` equal to the designated control repository's exact
+40-character commit.
 Stock offline mode returns explanatory prose, which
 the adapter intentionally rejects instead of treating as a draft. Also run an
 OIDC-enabled Parimit instance. Load the dedicated agent token through a local
@@ -123,9 +127,9 @@ secret mechanism rather than source, prompts, logs, or retained shell history.
 
 ### Reviewed local Ollama profile
 
-The repository includes an optional profile for Ollama's `qwen3.5:4b`. Pull and
-verify that exact model through Ollama, then start the loopback-only compatibility
-process in one terminal:
+The repository includes an optional profile for Ollama's `qwen3.5:4b`. Pull the
+tag, resolve and record its local model ID, then start the loopback-only
+compatibility process in one terminal:
 
 ```sh
 npm run pilot:ainxt:ollama-profile
@@ -180,11 +184,11 @@ workload token and passes it directly to the adapter in the same process:
 
 ```sh
 npm run pilot:ainxt:keycloak -- \
-  --expected-ainxt-control-plane-sha '<exact-AiNxt-control-plane-SHA>'
+  --expected-ainxt-control-plane-sha '<exact-reviewed-control-repo-commit>'
 ```
 
-It requires an exact 40-character lowercase AiNxt control-repository commit,
-matching the reviewed source anchor above, and gives
+It applies Parimit's exact 40-character lowercase control-repository commit
+policy, requires the study value to match the reviewed checkout above, and gives
 the local model up to 120 seconds, proves the port 8080 listener is
 loopback-only, completes the
 denied mobility simulation and allowed coffee preflight before any create, then

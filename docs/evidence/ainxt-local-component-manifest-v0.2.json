@@ -1,0 +1,27 @@
+{
+  "schema_version": "parimit-ainxt-local-component-manifest-v1",
+  "recorded_on": "2026-09-29",
+  "scope": "Maintainer-recorded inputs for one local compatibility run; not runtime attestation or reproducible-build proof",
+  "parimit_runtime_commit": "d9807d3c7f53c25464572f947c8c1daae690c355",
+  "ainxt": {
+    "source_review_commit": "454fb09cf1fff2bedb5aa3f4f1c391e4915f33dd",
+    "control_repo_commit": "454fb09cf1fff2bedb5aa3f4f1c391e4915f33dd",
+    "control_repo_designation": "For this local study, the reviewed AiNxt checkout was deliberately designated as the control repository",
+    "local_runtime_binary_sha256": "135a6522f66fd27985d2f9a71a3546ba629b80f512199bc40c7a7f9a8c3dce7c"
+  },
+  "ollama": {
+    "model_tag": "qwen3.5:4b",
+    "local_model_id_sha256": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+    "parameters": "4.7B",
+    "quantization": "Q4_K_M",
+    "runtime_enforcement": "The compatibility process allowlists the mutable model tag; the model ID was recorded separately"
+  },
+  "parimit_components": {
+    "ainxt_profile_sha256": "f91bfe85f02d3336a89509fc2afcb4ae6569ce9851e89700e25441f816186611",
+    "compatibility_process_sha256": "a2842cfb6c85145bb508c59256cde1ac0f8aa84e4326e2e3955581beef2b8f05"
+  },
+  "container_images": {
+    "keycloak": "quay.io/keycloak/keycloak:26.7.4@sha256:82a77884f3af238beab1e7afd63b5f530e1b5c0590bd7aa60b40a40463e29b2c",
+    "node": "node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6"
+  }
+}

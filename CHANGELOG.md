@@ -9,6 +9,10 @@ release.
 
 ### Added
 
+- Added Technical White Paper v0.2, covering the current proposal-only
+  architecture, OIDC/Keycloak identity boundary, signed evidence model,
+  reviewed AiNxt compatibility path, live local test evidence, limitations,
+  reproducibility manifest, and gated roadmap.
 - Added an optional, source-review-anchored AiNxt sidecar reference adapter that
   converts strictly validated synthetic AiNxt drafts into Parimit simulations
   or agent-owned proposals while exposing no approval, evidence, or execution
@@ -35,6 +39,9 @@ release.
 
 ### Security
 
+- Corrected the AiNxt pin contract: upstream SSE identifies a control-repository
+  commit, and Parimit now applies a stricter full 40-character lowercase Git OID
+  policy while keeping deployment manifests and component digests separate.
 - Pinned both the Keycloak and Node container images by immutable digest and
   excluded all generated pilot credentials and runtime evidence from the
   Docker build context.
@@ -45,6 +52,9 @@ release.
 
 ### Changed
 
+- Clarified that the local Ollama compatibility process allowlists a mutable
+  model tag; operators must verify and retain the model content digest
+  separately for a reviewed run.
 - Aligned the generated Keycloak pilot allowlist with the bounded AiNxt coffee
   fixture while keeping the higher-value mobility fixture outside the pilot's
   per-proposal limit.

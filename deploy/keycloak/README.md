@@ -268,18 +268,19 @@ model/provider, `AINXT_TRUSTED_GATEWAY=1`, and an explicit
 `AINXT_CONTROL_PLANE_SHA`. Keep that listener on loopback. For the repository's
 tested `qwen3.5:4b` setup, first run the local compatibility process and layer
 the bundled provider profile into AiNxt as documented in the
-[adapter guide](../../integrations/ainxt/README.md#reproducible-local-ollama-profile).
+[adapter guide](../../integrations/ainxt/README.md#reviewed-local-ollama-profile).
 The compatibility process is Parimit code, not an NPCI/AiNxt capability; its
 digest must be included in the reviewed deployment manifest.
 
 Then run the canonical combined smoke with the exact reviewed 40-character
-AiNxt control-repository commit. Keep the separate deployment manifest and its
-component digests as run evidence; do not use its SHA-256 in this protocol
-field:
+control-repository commit. Parimit deliberately applies this canonical full-OID
+policy more strictly than the upstream string field. Keep the separate
+deployment manifest and its component digests as run evidence; do not use its
+SHA-256 in this protocol field:
 
 ```sh
 npm run pilot:ainxt:keycloak -- \
-  --expected-ainxt-control-plane-sha '<exact-AiNxt-control-plane-SHA>'
+  --expected-ainxt-control-plane-sha '<exact-reviewed-control-repo-commit>'
 ```
 
 The command rebuilds and starts the canonical Keycloak/Parimit Compose stack,
@@ -299,7 +300,8 @@ amount and payee, and the runner makes no create call. Mobility denial runs
 first; the coffee model/policy preflight then completes before the first create.
 The observed AiNxt SSE control-plane value must exactly match the expected
 40-character lowercase control-repository commit; labels and `unpinned` are
-rejected. This is a source-revision assertion reported by the runtime, not
+rejected by Parimit's stricter local policy. This is a revision assertion
+reported by the runtime, not
 binary, model, or configuration attestation. Retain the runtime binary digest,
 configuration digest, local model digest, and deployment manifest separately.
 
