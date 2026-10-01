@@ -7,6 +7,8 @@ release.
 
 ## [Unreleased]
 
+## [0.1.0-alpha.4] - 2026-10-01
+
 ### Added
 
 - Added Technical White Paper v0.2, covering the current proposal-only
@@ -52,6 +54,8 @@ release.
 
 ### Changed
 
+- Advanced runtime, MCP, OpenAPI, SDK, and pilot-image metadata to
+  `0.1.0-alpha.4`.
 - Clarified that the local Ollama compatibility process allowlists a mutable
   model tag; operators must verify and retain the model content digest
   separately for a reviewed run.

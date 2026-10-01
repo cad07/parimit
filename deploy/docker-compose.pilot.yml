@@ -5,7 +5,7 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
-    image: "parimit-pilot:${PARIMIT_IMAGE_TAG:-0.1.0-alpha.3-local}"
+    image: "parimit-pilot:${PARIMIT_IMAGE_TAG:-0.1.0-alpha.4-local}"
     init: true
     environment:
       NODE_ENV: production

@@ -118,14 +118,14 @@ reconciliation mechanism.
 
 The HTTP server serves the local dashboard and REST API. The MCP process communicates
 over standard input/output so protocol data is not mixed with ordinary logs;
-it is disabled in OIDC mode because alpha.3 has no verified actor binding for
+it is disabled in OIDC mode because the current alpha has no verified actor binding for
 stdio MCP.
 Both call the same proposal-oriented application services. Envelope issuance
 and consumption remain REST/SDK-only and are absent from MCP. Domain and policy
 modules do not import networking modules; the CI boundary scanner enforces that
 constraint statically.
 
-The alpha.3 HTTP edge can verify OIDC identity and fail closed on role mapping.
+The current-alpha HTTP edge can verify OIDC identity and fail closed on role mapping.
 New intents bind a single configured tenant, but the shipped runtime does not
 route multiple tenants and remains SQLite-backed. The
 PostgreSQL schema and transaction contract under `db/postgres/` are an

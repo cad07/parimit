@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Parimit API
-  version: 0.1.0-alpha.3
+  version: 0.1.0-alpha.4
   summary: Proposal-only payment governance, human review, and signed evidence envelopes
   description: |
     Parimit accepts payment proposals, evaluates deterministic policy,

@@ -24,7 +24,7 @@ What is available now:
 - a receipt-key HMAC checkpoint over the complete signing-key registry, updated
   atomically with each key insert so missing historical keys fail closed;
 - an append-only, fixed-name `receipt_integrity_root_v1` record binding the
-  configured receipt secret and tenant to this database; alpha.3 does not
+  configured receipt secret and tenant to this database; the current alpha does not
   rotate this root;
 - a small driver-neutral transaction and audit-append contract in
   `src/storage/postgres-contract.ts`;
@@ -132,7 +132,7 @@ role separation; a table owner or superuser can disable them.
    it is absent on a genuine pre-v3 database, verify all existing approval
    receipts and signing-key attestations before the first insert. A v3 database
    with a missing root is corruption and must fail closed. Never update, delete,
-   or upsert the root: alpha.3 receipt-secret or trust-configuration rotation
+   or upsert the root: current-alpha receipt-secret or trust-configuration rotation
    requires a future explicit migration design.
    In the same bootstrap transaction, insert
    `envelope_signing_key_registry_state_v1` as the receipt-key HMAC of canonical
@@ -162,7 +162,7 @@ role separation; a table owner or superuser can disable them.
 10. Add backup/restore and point-in-time-recovery drills, connection saturation
    metrics, slow-query visibility, migration rollback policy, and secret
    lifecycle procedures before any external pilot depends on the database.
-   The alpha.3 receipt secret is explicitly excluded from rotation because its
+   The current-alpha receipt secret is explicitly excluded from rotation because its
    database-bound integrity root is non-rotatable.
 
 ## Required parity gates

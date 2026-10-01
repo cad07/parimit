@@ -1,6 +1,7 @@
 # Parimit Authorization Envelope v1
 
-Status: experimental in `v0.1.0-alpha.3`.
+Status: introduced in `v0.1.0-alpha.3` and remains experimental in
+`v0.1.0-alpha.4`.
 
 The Authorization Envelope is a portable, public-key-verifiable record that
 Parimit observed the required human approvals for one exact proposal. It is a

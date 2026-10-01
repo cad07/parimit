@@ -36,7 +36,7 @@ for a single-tenant pilot and keeps agent, approver, consumer, and admin roles s
 Clearly labelled, spoofable headers remain available only for an explicit
 local demo. No surface can dispatch an approval to a payment rail.
 
-## What works in v0.1.0-alpha.3
+## What works in v0.1.0-alpha.4
 
 - Create a proposal with an agent-scoped idempotency key.
 - Validate amount, currency, payee, purpose, and expiry.
@@ -150,7 +150,7 @@ file, while keeping its container host, port, database path, and demo mode fixed
 | `PARIMIT_RECEIPT_KEY` | insecure development value | HMAC key for approval receipts; OIDC mode requires at least 32 UTF-8 bytes |
 | `PARIMIT_TENANT_ID` | `local-demo` | Single deployment tenant bound into new v3 intent digests and envelopes |
 | `PARIMIT_ENVELOPE_ISSUER` | `https://parimit.local` | Exact HTTPS or URN issuer carried in signed envelopes |
-| `PARIMIT_ENVELOPE_AUDIENCES` | `urn:parimit:consumer:local-demo` | Exactly one relying-party trust URI in alpha.3; multiple audiences are rejected |
+| `PARIMIT_ENVELOPE_AUDIENCES` | `urn:parimit:consumer:local-demo` | Exactly one relying-party trust URI in the current alpha; multiple audiences are rejected |
 | `PARIMIT_ENVELOPE_TTL_SECONDS` | `300` | Maximum signed-envelope lifetime, capped at 3600 seconds and the proposal deadline |
 | `PARIMIT_ENVELOPE_PRIVATE_KEY_PEM_BASE64` | ephemeral in demo | Base64-encoded PKCS#8 Ed25519 private-key PEM; required in non-demo mode |
 | `PARIMIT_ENVELOPE_SIGNING_KEY_ID` | public-key thumbprint | Optional stable signing-key identifier |

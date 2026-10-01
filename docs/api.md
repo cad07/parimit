@@ -76,7 +76,7 @@ The MCP transport is standard input/output. Protocol messages go to stdout;
 diagnostic logs, if any, go to stderr. An MCP host should run the process with a
 dedicated low-privilege OS identity and no payment credentials.
 It is a local demo surface and refuses to start with
-`PARIMIT_AUTH_MODE=oidc`: alpha.3 does not bind a verified OIDC identity to a
+`PARIMIT_AUTH_MODE=oidc`: the current alpha does not bind a verified OIDC identity to a
 stdio MCP session. The supported external pilot uses REST or the TypeScript SDK.
 
 Allowed tools are `create_payment_proposal`, `get_payment_status`,

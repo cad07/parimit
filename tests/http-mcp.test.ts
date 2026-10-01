@@ -314,7 +314,7 @@ test("MCP exposes proposal/status/policy/cancel/mock/audit tools but no approval
   const initializeResult = (initialized?.result ?? {}) as Record<string, unknown>;
   assert.deepEqual(initializeResult.serverInfo, {
     name: "parimit",
-    version: "0.1.0-alpha.3",
+    version: "0.1.0-alpha.4",
   });
 });
 

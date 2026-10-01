@@ -34,7 +34,7 @@ Use these environment variables for the external pilot:
 
 The environment-created provider accepts RS256 by default. The underlying
 library also supports explicitly allowlisted PS256 and ES256 for custom
-embedding, but the alpha.3 server has no environment setting to change the
+embedding, but the current-alpha server has no environment setting to change the
 algorithm allowlist. Do not infer an algorithm from the token header.
 
 Example mapping:

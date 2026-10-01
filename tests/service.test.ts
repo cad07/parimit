@@ -794,7 +794,7 @@ test("invalid policy metadata and over-broad expiry fail before opening the data
   assert.equal(existsSync(overBroadExpiryDatabase), false);
 });
 
-test("alpha.3 rejects ambiguous multi-audience consumer authorization", () => {
+test("the service rejects ambiguous multi-audience consumer authorization", () => {
   assert.throws(
     () =>
       new ParimitService({

@@ -88,8 +88,9 @@ SDK, or capability that can move funds.
 | Prior feature PR/main checks | Passed | CI, CodeQL, secret scan, dependency review, and pilot guardrails before the pin correction | Hosted checks for `d9807d3` or independent penetration testing |
 
 The source, documentation, tests, and build workflows are open under the MIT
-License. The referenced snapshot remains an unreleased alpha beyond the
-published `v0.1.0-alpha.3` tag.
+License. This paper accompanies the `v0.1.0-alpha.4` public research alpha.
+Its live compatibility claims remain tied to the exact tested runtime snapshot
+identified in Section 9 rather than to an unqualified production claim.
 
 ## 1. Problem: authority collapses too easily
 
@@ -572,19 +573,21 @@ intent, idempotency, actor, and credential data.
 System building should continue, but execution should remain the last component
 introduced.
 
-### Gate 1 - complete real human acceptance
+### Gate 1 - package the next public alpha
+
+Publish the current `main` state as a public research alpha only after hosted
+checks on the exact release candidate and final documentation review. Include
+the non-secret component manifest, this paper, source checks, and release
+notes. Do not publish generated credentials or local runtime reports. This gate
+does not authorize an external pilot or any payment integration.
+
+### Gate 2 - complete real human acceptance before an external pilot
 
 Two real people must complete reviewer and administrator device login, replace
 temporary passwords, configure TOTP, inspect exact fictional proposals, and
 make the required decisions. The acceptance record must distinguish human
-action from automation.
-
-### Gate 2 - package the next alpha
-
-Publish the current `main` state as a new alpha only after final documentation
-review. Include the non-secret component manifest, this paper, source checks,
-and release notes. Do not publish generated credentials or local runtime
-reports.
+action from automation. No external participant should receive access before
+this gate passes.
 
 ### Gate 3 - production foundation
 

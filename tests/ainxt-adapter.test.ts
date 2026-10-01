@@ -38,7 +38,7 @@ interface FakeOptions {
 function safety(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     name: "Parimit",
-    version: "0.1.0-alpha.3",
+    version: "0.1.0-alpha.4",
     mode: "PROPOSAL_ONLY",
     moves_money: false,
     connects_to_upi: false,

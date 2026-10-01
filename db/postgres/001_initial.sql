@@ -177,7 +177,7 @@ CREATE TABLE parimit.envelope_signing_key_registry_state (
 -- canonical {version, tenant_id, envelope_issuer, envelope_audience,
 -- envelope_maximum_lifetime_seconds, authentication_mode,
 -- identity_trust_domain_id, policy_configuration_digest} root payload. The
--- fixed name permits exactly one database-bound trust root; alpha.3 does not
+-- fixed name permits exactly one database-bound trust root; the current alpha does not
 -- support rotating it.
 CREATE TABLE parimit.service_integrity_roots (
   name text PRIMARY KEY CHECK (name = 'receipt_integrity_root_v1'),

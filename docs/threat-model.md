@@ -2,7 +2,7 @@
 
 ## Scope and assumptions
 
-This threat model covers the alpha.3 application: proposal-safe REST and MCP
+This threat model covers the current-alpha application: proposal-safe REST and MCP
 interfaces, OIDC verification at the REST edge, deterministic policy, human
 decisions, signed evidence envelopes, one-time local consumption, local
 persistence, audit chaining, the local dashboard, the mock simulator, and the
@@ -46,10 +46,10 @@ or PSP interface, approval, certification or endorsement.
 | Audit rewriting | Local event history is edited | Hash chain, verification, and future external anchoring |
 | Outcome ambiguity | Timeout is treated as failure then retried | `IN_DOUBT` freezes later observations; authoritative reconciliation is future work |
 | SSRF / exfiltration | Policy core calls a URL from proposal text | No network imports or fetch in core; CI scanner |
-| Resource exhaustion | Huge body or proposal flood | Body limits, rate limits, quotas, bounded fields |
+| Resource exhaustion | Huge body or proposal flood | Application body and field limits; external proxy/host rate limits and quotas are required for a pilot |
 | Cross-site request forgery | Browser is tricked into approval | Hosted pilot is API/SDK only; any future browser OIDC flow requires audited CSRF/state/nonce controls |
 | Cross-site scripting | Purpose text contains markup | Contextual output escaping and restrictive CSP |
-| Secret leakage | Receipt or signing key appears in logs or repository | Secret manager and redaction; stop and replace the pilot database if the alpha.3 receipt key is compromised; rotate envelope signing keys independently |
+| Secret leakage | Receipt or signing key appears in logs or repository | Secret manager and redaction; stop and replace the pilot database if the current-alpha receipt key is compromised; rotate envelope signing keys independently |
 | Local IdP impersonation | A fake loopback service supplies tokens or signing keys | HTTPS issuer and JWKS, profile-scoped generated CA, exact issuer/audience validation, and no plaintext fallback |
 | Role-claim confusion | Default realm roles or several Parimit roles reach one token | Dedicated top-level access-token claim, exact four-value mapping, and fail-closed ambiguous-role rejection |
 | Machine approval | A CI or workload credential is used as the reviewer | Service accounts only for agent and consumer; reviewer/admin use interactive device authorization; CI never authenticates as either human role or records a decision |
@@ -95,7 +95,7 @@ or PSP interface, approval, certification or endorsement.
   can rewrite the complete store and keys.
 - Process-local or file-backed storage may lose state or mishandle concurrency.
 - The browser dashboard is not a hardened privileged-access workstation.
-- Stdio MCP has no verified OIDC actor binding in alpha.3 and is therefore
+- Stdio MCP has no verified OIDC actor binding in the current alpha and is therefore
   disabled in OIDC mode; it remains a local demonstration boundary only.
 - The mock simulator demonstrates state handling but says nothing about a real
   provider's correctness, availability, or settlement semantics.
