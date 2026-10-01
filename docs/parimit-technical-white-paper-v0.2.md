@@ -85,7 +85,7 @@ SDK, or capability that can move funds.
 | Boundary scanner | Passed | Selected source and capability invariants | Formal verification or whole-program data-flow proof |
 | Keycloak workload smoke | 12 of 12 passed | TLS/OIDC workload identity and role separation | Interactive human acceptance |
 | Live AiNxt-Keycloak smoke | 16 of 16 passed | Reviewed local model-to-proposal compatibility | Model-byte attestation, native AiNxt integration, UPI, or execution |
-| Prior feature PR/main checks | Passed | CI, CodeQL, secret scan, dependency review, and pilot guardrails before the pin correction | Hosted checks for `d9807d3` or independent penetration testing |
+| Release-candidate PR checks | Passed | CI, CodeQL, secret scan, dependency review, and pilot guardrails on the release candidate [15] | Independent penetration testing or production certification |
 
 The source, documentation, tests, and build workflows are open under the MIT
 License. This paper accompanies the `v0.1.0-alpha.4` public research alpha.
@@ -462,10 +462,10 @@ payment execution was attempted by the automated runs.
 The core suite reported 94 passing tests and the TypeScript SDK suite reported
 6 passing tests. The boundary check scanned selected source and integration
 files for prohibited authority surfaces and network behavior. GitHub checks on
-the prior merged feature [14] reported success for CI, CodeQL, dependency
-review, secret scanning, and the Keycloak pilot guardrails. The corrected commit
-`d9807d3` passed the same local 100-test and boundary suite; hosted checks for
-that correction remain a publication gate.
+the release-candidate pull request [15] reported success for CI, CodeQL,
+dependency review, secret scanning, and the Keycloak pilot guardrails after the
+pin correction and release packaging. The corrected runtime snapshot
+`d9807d3` also passed the same local 100-test and boundary suite.
 
 ### 8.3 Keycloak workload smoke
 
@@ -673,6 +673,8 @@ those layers are added.
     <https://github.com/cad07/parimit/blob/main/docs/evidence/ainxt-local-component-manifest-v0.2.json>
 14. Parimit contributors, **Initial live AiNxt-Keycloak feature pull request 9**:
     <https://github.com/cad07/parimit/pull/9>
+15. Parimit contributors, **v0.1.0-alpha.4 release-candidate pull request 11**:
+    <https://github.com/cad07/parimit/pull/11>
 
 ## Appendix A - Public capability inventory
 
