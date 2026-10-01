@@ -11,6 +11,11 @@ import { fileURLToPath } from "node:url";
 
 import { AiNxtParimitAdapter } from "../integrations/ainxt/adapter.ts";
 import {
+  KEYCLOAK_CONFIGURED_ACCESS_TOKEN_LIFETIME_SECONDS,
+  KEYCLOAK_MAX_ENCODED_ACCESS_TOKEN_LIFETIME_SECONDS,
+  isExpectedKeycloakAccessTokenLifetime,
+} from "./keycloak-pilot-token-lifetime.ts";
+import {
   LIVE_AINXT_KEYCLOAK_REPORT_CLASSIFICATION,
   assembleLiveAiNxtKeycloakSmokeEvidence,
   liveAiNxtSmokeIdempotencyKeys,
@@ -463,9 +468,16 @@ function verifyAccessToken(
   const now = Math.floor(Date.now() / 1_000);
   expect((claims.exp as number) > now, "Access token is expired");
   expect((claims.iat as number) <= now + 60, "Access token was issued in the future");
+  const lifetimeSeconds = (claims.exp as number) - (claims.iat as number);
   expect(
-    (claims.exp as number) - (claims.iat as number) === 300,
-    "Access-token lifetime must be exactly five minutes",
+    isExpectedKeycloakAccessTokenLifetime(claims.iat as number, claims.exp as number),
+    `Access-token encoded lifetime must be ${KEYCLOAK_CONFIGURED_ACCESS_TOKEN_LIFETIME_SECONDS}` +
+      `-${KEYCLOAK_MAX_ENCODED_ACCESS_TOKEN_LIFETIME_SECONDS} seconds; observed ${lifetimeSeconds}`,
+  );
+  const remainingLifetimeSeconds = (claims.exp as number) - now;
+  expect(
+    remainingLifetimeSeconds <= KEYCLOAK_CONFIGURED_ACCESS_TOKEN_LIFETIME_SECONDS,
+    `Access-token remaining lifetime exceeds five minutes; observed ${remainingLifetimeSeconds} seconds`,
   );
   const roles = mappedTokenRoles(claims);
   expect(roles.length === 1 && roles[0] === expectedRole, `Access token must map only to ${expectedRole}`);

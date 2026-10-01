@@ -3,6 +3,12 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import {
+  KEYCLOAK_CONFIGURED_ACCESS_TOKEN_LIFETIME_SECONDS,
+  KEYCLOAK_MAX_ENCODED_ACCESS_TOKEN_LIFETIME_SECONDS,
+  isExpectedKeycloakAccessTokenLifetime,
+} from "../scripts/keycloak-pilot-token-lifetime.ts";
+
 const repositoryRoot = new URL("../", import.meta.url);
 const composeUrl = new URL("deploy/keycloak/docker-compose.yml", repositoryRoot);
 const realmUrl = new URL("deploy/keycloak/parimit-pilot-realm.json", repositoryRoot);
@@ -195,6 +201,14 @@ test("Keycloak and Parimit containers are digest-pinned, hardened, TLS-only, and
   );
   assert.equal(env(environment, "PARIMIT_OIDC_AUDIENCE"), RESOURCE_CLIENT);
   assert.equal(env(environment, "PARIMIT_OIDC_ROLE_CLAIM"), "roles");
+  assert.equal(
+    env(environment, "PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS"),
+    String(KEYCLOAK_MAX_ENCODED_ACCESS_TOKEN_LIFETIME_SECONDS),
+  );
+  assert.match(
+    compose,
+    /PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS:\s*"\$\{PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS:-301\}"/u,
+  );
   assert.equal(env(environment, "KEYCLOAK_HTTPS_KEYSTORE_PASSWORD"), "");
 
   for (const line of environment.split(/\r?\n/u)) {
@@ -264,7 +278,9 @@ test("live AiNxt smoke keeps the agent token in-process and remains non-human", 
   assert.doesNotMatch(runner, /PARIMIT_AGENT_ACCESS_TOKEN/u);
   assert.match(runner, /--expected-ainxt-control-plane-sha/u);
   assert.match(runner, /120_000/u);
-  assert.match(runner, /Access-token lifetime must be exactly five minutes/u);
+  assert.match(runner, /isExpectedKeycloakAccessTokenLifetime/u);
+  assert.match(runner, /encoded lifetime must be/u);
+  assert.match(runner, /remaining lifetime exceeds five minutes/u);
   assert.match(runner, /lsof[\s\S]*?ss[\s\S]*?requireLoopbackOnlyAiNxtBindings/u);
   assert.match(liveSmoke, /not bound exclusively to loopback/u);
   assert.match(
@@ -339,7 +355,7 @@ test("realm emits one exact access-token audience and top-level Parimit role cla
   assert.equal(realm.realm, "parimit-pilot");
   assert.equal(realm.sslRequired, "all");
   assert.equal(realm.defaultSignatureAlgorithm, "RS256");
-  assert.equal(realm.accessTokenLifespan, 300);
+  assert.equal(realm.accessTokenLifespan, KEYCLOAK_CONFIGURED_ACCESS_TOKEN_LIFETIME_SECONDS);
   assert.equal(realm.accessTokenLifespanForImplicitFlow, 0);
 
   const clientScopes = objects(realm.clientScopes, "realm.clientScopes");
@@ -423,6 +439,14 @@ test("realm emits one exact access-token audience and top-level Parimit role cla
     new Set(strings(accessScopeMappings[0]!.roles, `${ACCESS_SCOPE}.roles`)),
     PARIMIT_ROLES,
   );
+});
+
+test("five-minute Keycloak tokens tolerate only the one-second encoding rollover", () => {
+  const issuedAt = 1_000;
+  assert.equal(isExpectedKeycloakAccessTokenLifetime(issuedAt, issuedAt + 299), false);
+  assert.equal(isExpectedKeycloakAccessTokenLifetime(issuedAt, issuedAt + 300), true);
+  assert.equal(isExpectedKeycloakAccessTokenLifetime(issuedAt, issuedAt + 301), true);
+  assert.equal(isExpectedKeycloakAccessTokenLifetime(issuedAt, issuedAt + 302), false);
 });
 
 test("only agent and consumer are service accounts; reviewer and admin require interactive device users", async () => {

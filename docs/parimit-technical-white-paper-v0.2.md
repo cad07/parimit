@@ -80,7 +80,7 @@ SDK, or capability that can move funds.
 
 | Evidence layer | Result | What it supports | What it does not support |
 | --- | --- | --- | --- |
-| Core automated suite | 94 of 94 passed | Domain, policy, identity, evidence, HTTP, persistence, adapter, and adversarial behavior | Production security or regulatory acceptance |
+| Core automated suite | 95 of 95 passed | Domain, policy, identity, evidence, HTTP, persistence, adapter, and adversarial behavior | Production security or regulatory acceptance |
 | TypeScript SDK suite | 6 of 6 passed | Role-shaped client behavior and safe endpoint use | Compatibility with every client environment |
 | Boundary scanner | Passed | Selected source and capability invariants | Formal verification or whole-program data-flow proof |
 | Keycloak workload smoke | 12 of 12 passed | TLS/OIDC workload identity and role separation | Interactive human acceptance |

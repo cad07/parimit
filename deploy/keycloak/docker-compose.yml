@@ -89,7 +89,7 @@ services:
       PARIMIT_OIDC_ROLE_CLAIM: roles
       PARIMIT_OIDC_ROLE_MAPPING: '{"parimit-pilot-agent":"agent","parimit-pilot-reviewer":"approver","parimit-pilot-consumer":"consumer","parimit-pilot-admin":"admin"}'
       PARIMIT_OIDC_CLOCK_SKEW_SECONDS: "${PARIMIT_OIDC_CLOCK_SKEW_SECONDS:-30}"
-      PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS: "${PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS:-600}"
+      PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS: "${PARIMIT_OIDC_MAX_TOKEN_LIFETIME_SECONDS:-301}"
       # Keep unset until the exact Keycloak access-token typ is verified and
       # deliberately pinned. Parimit still accepts only signed JWTs here.
       PARIMIT_OIDC_REQUIRED_TYP: ""

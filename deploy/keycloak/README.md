@@ -86,6 +86,12 @@ Parimit's identity-trust-domain digest. Do not change either value against an
 existing Parimit database. Start a fresh Parimit data volume for any identity,
 audience, role, token-policy, or endpoint change.
 
+Alpha.4 tightens the pilot's `exp - iat` ceiling from 600 to 301 seconds. An
+older local volume bound to the previous ceiling will therefore fail closed if
+started with the new default. Preserve the old volume and its matching recovery
+set for audit or rollback; start a fresh Parimit data volume to use the alpha.4
+default. There is no silent in-place trust-policy migration.
+
 ## Identity layout
 
 The realm is `parimit-pilot`, and the only accepted API audience is
@@ -285,8 +291,12 @@ npm run pilot:ainxt:keycloak -- \
 
 The command rebuilds and starts the canonical Keycloak/Parimit Compose stack,
 obtains a fresh five-minute `parimit-agent-workload` token over the pinned local
-CA, verifies its signature, exact claims, and exact 300-second lifetime, and
-passes it directly to the adapter in the same Node process. The bearer token is
+CA, and verifies its signature, exact claims, and tightly bounded encoded
+lifetime. Keycloak records `iat` at whole-second precision before deriving `exp`
+from a later millisecond clock read, so a second-boundary rollover can encode
+the configured 300-second lifetime as 301 seconds. The runner accepts only
+300-301 seconds, and the Parimit service cap is 301 seconds. It passes the token
+directly to the adapter in the same Node process. The bearer token is
 never exported to the shell, forwarded to AiNxt, printed, or written to the
 report. Before using it with the adapter, the runner inspects TCP port 8080 with
 the host's `lsof` (macOS) or `ss` (Linux) and fails closed unless every observed

@@ -41,6 +41,14 @@ release.
 
 ### Security
 
+- Tightened the Keycloak pilot verifier and Parimit runtime to the pilot's
+  fail-closed encoded range for a configured five-minute token: 300 seconds, or
+  301 when Keycloak crosses a whole-second boundary between its `iat` and `exp`
+  clock reads. The live runner also requires no more than 300 seconds of
+  validity to remain when it verifies the token. Because this ceiling is bound
+  into the database trust root, older local pilot volumes must retain their
+  matching recovery set or be replaced with a fresh volume; they are not
+  silently migrated to the tighter alpha.4 default.
 - Corrected the AiNxt pin contract: upstream SSE identifies a control-repository
   commit, and Parimit now applies a stricter full 40-character lowercase Git OID
   policy while keeping deployment manifests and component digests separate.
