@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Parimit is an open-source, proposal-only governance boundary for AI-initiated payment intents. Agents propose, reviewers decide, and this alpha never moves money."
+    />
+    <meta name="theme-color" content="#123d31" />
+    <meta name="color-scheme" content="light" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parimit — Bounded authority for agent payments" />
+    <meta
+      property="og:description"
+      content="A proposal-only governance boundary for AI agents. Deterministic policy, separated reviewer roles, signed evidence, and no payment execution."
+    />
+    <meta property="og:url" content="https://cad07.github.io/parimit/" />
+    <meta name="twitter:card" content="summary" />
+    <link rel="canonical" href="https://cad07.github.io/parimit/" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <script>document.documentElement.classList.add("js");</script>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./script.js"></script>
+    <title>Parimit — Bounded authority for agent payments</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <header class="site-header" data-header>
+      <div class="shell header-inner">
+        <a class="brand" href="#top" aria-label="Parimit home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32">
+              <path class="shield" d="M16 3.5 26 7.4v7.8c0 6.9-4.2 11.7-10 13.8C10.2 26.9 6 22.1 6 15.2V7.4L16 3.5Z" />
+              <path class="check" d="m11 16 3.2 3.2 7-7" />
+            </svg>
+          </span>
+          <span class="brand-copy">
+            <strong>Parimit</strong>
+            <small>परिमित · bounded</small>
+          </span>
+        </a>
+
+        <nav class="desktop-nav" aria-label="Primary navigation">
+          <a href="#how-it-works">How it works</a>
+          <a href="#what-ships">What ships</a>
+          <a href="#evidence">Evidence</a>
+          <a href="#roadmap">Roadmap</a>
+          <a href="#developers">Developers</a>
+        </nav>
+
+        <div class="header-actions">
+          <a class="text-link desktop-only" href="https://github.com/cad07/parimit">GitHub</a>
+          <a class="button button-small button-dark desktop-only" href="https://github.com/cad07/parimit/releases/tag/v0.1.0-alpha.4">View release</a>
+          <button class="menu-button" type="button" aria-expanded="false" aria-controls="mobile-menu" data-menu-button>
+            <span class="visually-hidden">Open navigation</span>
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+          </button>
+        </div>
+      </div>
+
+      <nav class="mobile-menu" id="mobile-menu" aria-label="Mobile navigation" hidden data-mobile-menu>
+        <div class="shell">
+          <a href="#how-it-works">How it works</a>
+          <a href="#what-ships">What ships</a>
+          <a href="#evidence">Evidence</a>
+          <a href="#roadmap">Roadmap</a>
+          <a href="#developers">Developers</a>
+          <a href="https://github.com/cad07/parimit">GitHub repository</a>
+        </div>
+      </nav>
+
+      <noscript>
+        <nav class="no-script-nav" aria-label="Site navigation without JavaScript">
+          <div class="shell">
+            <a href="#how-it-works">How it works</a>
+            <a href="#what-ships">What ships</a>
+            <a href="#evidence">Evidence</a>
+            <a href="#roadmap">Roadmap</a>
+            <a href="#developers">Developers</a>
+            <a href="https://github.com/cad07/parimit">GitHub</a>
+          </div>
+        </nav>
+      </noscript>
+    </header>
+
+    <main id="main-content">
+      <section class="hero" id="top">
+        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="shell hero-layout">
+          <div class="hero-copy reveal">
+            <div class="hero-kicker">
+              <span>Open-source research alpha</span>
+              <span class="dot">·</span>
+              <span>MIT licensed</span>
+            </div>
+            <h1>Give agents a boundary.<br /><em>Not a bank account.</em></h1>
+            <p class="hero-lead">
+              Parimit lets an AI agent propose a payment intent, applies deterministic policy,
+              routes the exact request for reviewer decision, and produces verifiable evidence—without
+              connecting to a payment rail.
+            </p>
+            <div class="hero-ctas">
+              <a class="button button-primary" href="https://github.com/cad07/parimit">
+                Explore the code
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12m-5-5 5 5-5 5" /></svg>
+              </a>
+              <a
+                class="button button-ghost"
+                href="https://github.com/cad07/parimit/releases/download/v0.1.0-alpha.4/parimit-technical-white-paper-v0.2.pdf"
+              >
+                Read the white paper
+              </a>
+            </div>
+            <p class="hero-note">
+              No UPI, bank, PSP, wallet, merchant, debit, settlement, refund, or payment-execution connection exists in this release.
+            </p>
+          </div>
+
+          <div class="hero-console reveal" data-delay="1" role="img" aria-label="Illustration of a Parimit proposal flow">
+            <div class="console-topbar">
+              <span class="console-title"><span class="status-light"></span>Proposal boundary</span>
+              <span class="console-version">v0.1.0-alpha.4</span>
+            </div>
+            <div class="proposal-card">
+              <div class="proposal-heading">
+                <div>
+                  <span class="mini-label">Synthetic intent</span>
+                  <strong>Team software renewal</strong>
+                </div>
+                <span class="status status-review">Awaiting approval</span>
+              </div>
+              <dl class="proposal-data">
+                <div><dt>Amount</dt><dd>₹499.00</dd></div>
+                <div><dt>Payee</dt><dd>merchant_demo_4821</dd></div>
+                <div><dt>Policy</dt><dd><span class="tick">✓</span> Allowed</dd></div>
+                <div><dt>Approvals</dt><dd>0 of 1</dd></div>
+              </dl>
+            </div>
+            <ol class="flow-list">
+              <li class="flow-complete"><span>01</span><div><strong>Agent proposes</strong><small>Structured, idempotent request</small></div></li>
+              <li class="flow-complete"><span>02</span><div><strong>Policy evaluates</strong><small>Limits, allowlists, expiry</small></div></li>
+              <li class="flow-current"><span>03</span><div><strong>Reviewer decides</strong><small>Exact-intent decision</small></div></li>
+              <li><span>04</span><div><strong>Evidence records</strong><small>Signed, non-dispatchable proof</small></div></li>
+            </ol>
+            <div class="rail-block">
+              <span class="rail-icon" aria-hidden="true">×</span>
+              <div><strong>Payment rail</strong><small>No connection by design</small></div>
+              <code>moves_money: false</code>
+            </div>
+          </div>
+        </div>
+
+        <div class="shell proof-strip reveal" data-delay="2" aria-label="Public proof points">
+          <div><strong>0</strong><span>execution tools</span></div>
+          <div><strong>6</strong><span>proposal-safe MCP tools</span></div>
+          <div><strong>101</strong><span>alpha.4 automated tests</span></div>
+          <div><strong>16/16</strong><span>smoke checks at d9807d3</span></div>
+        </div>
+      </section>
+
+      <section class="boundary-banner" aria-label="Core safety boundary">
+        <div class="shell boundary-inner">
+          <span class="boundary-symbol" aria-hidden="true">∥</span>
+          <p><strong>Agents propose.</strong> Deterministic policy constrains. <strong>Reviewers decide.</strong> Parimit records evidence. Execution stays elsewhere.</p>
+        </div>
+      </section>
+
+      <section class="section" id="how-it-works">
+        <div class="shell">
+          <div class="section-heading reveal">
+            <p class="eyebrow">A narrow, inspectable workflow</p>
+            <h2>From suggestion to evidence—<em>then stop.</em></h2>
+            <p>Parimit separates an untrusted proposal plane from a distinct reviewer role. In OIDC mode that role can be bound to an authenticated subject. Approval is evidence, not a payment instruction.</p>
+          </div>
+
+          <div class="steps-grid">
+            <article class="step-card reveal">
+              <span class="step-number">01</span>
+              <div class="step-icon" aria-hidden="true">
+                <svg viewBox="0 0 28 28"><path d="M5 7h18v14H5zM8 11h7m-7 4h12m-12 4h8" /></svg>
+              </div>
+              <h3>Propose</h3>
+              <p>An agent submits a structured amount, currency, opaque payee reference, purpose, expiry, and idempotency key.</p>
+            </article>
+            <article class="step-card reveal" data-delay="1">
+              <span class="step-number">02</span>
+              <div class="step-icon" aria-hidden="true">
+                <svg viewBox="0 0 28 28"><path d="M14 4 23 8v6c0 5.3-3.6 8.6-9 10-5.4-1.4-9-4.7-9-10V8l9-4Zm-4 10 2.5 2.5L18 11" /></svg>
+              </div>
+              <h3>Constrain</h3>
+              <p>Deterministic rules check limits, payee lists, daily exposure, purpose, expiry, and whether dual approval is required.</p>
+            </article>
+            <article class="step-card reveal" data-delay="2">
+              <span class="step-number">03</span>
+              <div class="step-icon" aria-hidden="true">
+                <svg viewBox="0 0 28 28"><circle cx="10" cy="10" r="4"/><circle cx="20" cy="12" r="3"/><path d="M3.5 23c.7-4.6 3-7 6.5-7s5.8 2.4 6.5 7m0-5.5c1-.8 2.1-1.2 3.5-1.2 2.8 0 4.4 1.8 5 5.2" /></svg>
+              </div>
+              <h3>Decide</h3>
+              <p>One or two distinct reviewer identities approve or reject the exact proposal. Local-demo identities are spoofable labels; OIDC mode verifies authenticated subjects. Agents never receive approval authority.</p>
+            </article>
+            <article class="step-card reveal" data-delay="3">
+              <span class="step-number">04</span>
+              <div class="step-icon" aria-hidden="true">
+                <svg viewBox="0 0 28 28"><path d="M6 4h12l4 4v16H6zM18 4v5h5M10 14h8m-8 4h8"/><path d="m9 10 2 2 4-4" /></svg>
+              </div>
+              <h3>Prove</h3>
+              <p>Parimit issues non-dispatchable receipts and short-lived signed evidence, then appends the decision to a hash-linked audit history.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section architecture-section" id="architecture">
+        <div class="shell architecture-layout">
+          <div class="architecture-copy reveal">
+            <p class="eyebrow eyebrow-light">The architectural boundary</p>
+            <h2>A control plane with a deliberate missing link.</h2>
+            <p>
+              The proposal, policy, decision, and evidence surfaces share one rule: no shipped interface can turn approval into a provider command.
+            </p>
+            <ul class="check-list">
+              <li>Network-free deterministic domain and policy core</li>
+              <li>Separate agent, reviewer, consumer, and administrator roles</li>
+              <li>Exact-intent digests and one-time local evidence consumption</li>
+              <li>Fail-closed audit verification and uncertainty handling</li>
+            </ul>
+            <a class="inline-link light-link" href="https://github.com/cad07/parimit/blob/main/docs/architecture.md">Read the architecture <span aria-hidden="true">↗</span></a>
+          </div>
+
+          <div class="architecture-map reveal" data-delay="1" role="group" aria-labelledby="architecture-map-title">
+            <span class="visually-hidden" id="architecture-map-title">Parimit architecture: an agent proposes, a separate reviewer decides, Parimit records non-dispatchable evidence, and no route reaches a bank, PSP, or UPI rail.</span>
+            <div class="map-source map-agent"><span>AI</span><strong>Agent</strong><small>Untrusted</small></div>
+            <div class="map-source map-human"><span>✓</span><strong>Reviewer</strong><small>Separate role</small></div>
+            <div class="map-arrow map-arrow-agent" aria-hidden="true"></div>
+            <div class="map-arrow map-arrow-human" aria-hidden="true"></div>
+            <div class="map-core">
+              <span class="mini-label">Parimit boundary</span>
+              <div class="core-row"><strong>Validate</strong><span>→</span><strong>Policy</strong><span>→</span><strong>Review</strong></div>
+              <div class="core-row core-row-muted"><strong>Evidence</strong><span>+</span><strong>Audit</strong></div>
+            </div>
+            <div class="map-arrow map-arrow-output" aria-hidden="true"></div>
+            <div class="map-evidence"><span>◇</span><strong>Evidence</strong><small>Non-dispatchable</small></div>
+            <div class="map-blocked-line" aria-hidden="true"><span>No route</span></div>
+            <div class="map-rail"><span>₹</span><strong>Bank / PSP / UPI</strong><small>Out of scope</small></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="what-ships">
+        <div class="shell">
+          <div class="section-heading split-heading reveal">
+            <div>
+              <p class="eyebrow">Available in alpha.4</p>
+              <h2>One boundary, several safe interfaces.</h2>
+            </div>
+            <p>Use Parimit locally as a browser demo, through REST and a role-shaped SDK, or through a deliberately narrow MCP process.</p>
+          </div>
+
+          <div class="feature-grid">
+            <article class="feature-card feature-card-large reveal">
+              <div class="feature-tag">Core</div>
+              <h3>Proposal governance</h3>
+              <p>Structured validation, deterministic policy, one- or two-person review, cancellation, expiry, idempotency, and mock outcomes.</p>
+              <div class="feature-pills"><span>INR minor units</span><span>Exact intent</span><span>IN_DOUBT freeze</span></div>
+            </article>
+            <article class="feature-card reveal" data-delay="1">
+              <div class="feature-tag">Interfaces</div>
+              <h3>REST + SDK</h3>
+              <p>OpenAPI-documented endpoints and dependency-free TypeScript clients shaped for each permitted role.</p>
+              <a href="https://github.com/cad07/parimit/blob/main/openapi.yaml">Open API specification <span aria-hidden="true">↗</span></a>
+            </article>
+            <article class="feature-card reveal" data-delay="2">
+              <div class="feature-tag">Agents</div>
+              <h3>Six safe MCP tools</h3>
+              <p>Create, inspect, cancel, evaluate policy, simulate mock outcomes, and read audit history—never approve or execute.</p>
+              <a href="https://github.com/cad07/parimit/blob/main/docs/api.md">Inspect the MCP surface <span aria-hidden="true">↗</span></a>
+            </article>
+            <article class="feature-card reveal">
+              <div class="feature-tag">Identity</div>
+              <h3>OIDC / Keycloak pilot</h3>
+              <p>Signature, issuer, audience, lifetime, algorithm, and fail-closed role validation in a local TLS pilot profile.</p>
+              <a href="https://github.com/cad07/parimit/tree/main/deploy/keycloak">View local pilot <span aria-hidden="true">↗</span></a>
+            </article>
+            <article class="feature-card reveal" data-delay="1">
+              <div class="feature-tag">Evidence</div>
+              <h3>Signed and inspectable</h3>
+              <p>HMAC receipts, audience-bound Ed25519 envelopes, JWKS verification, one-time local consumption, and hash-linked audit.</p>
+              <a href="https://github.com/cad07/parimit/blob/main/docs/authorization-envelope-v1.md">Read the envelope spec <span aria-hidden="true">↗</span></a>
+            </article>
+            <article class="feature-card feature-card-accent reveal" data-delay="2">
+              <div class="feature-tag">Compatibility</div>
+              <h3>AiNxt sidecar</h3>
+              <p>A source-review-anchored adapter turns fixed synthetic drafts into Parimit simulations or proposals. No native connector or payment authority.</p>
+              <a href="https://github.com/cad07/parimit/tree/main/integrations/ainxt">Review the adapter <span aria-hidden="true">↗</span></a>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section evidence-section" id="evidence">
+        <div class="shell">
+          <div class="section-heading centered reveal">
+            <p class="eyebrow">Evidence, not adjectives</p>
+            <h2>What the public evidence actually proves.</h2>
+            <p>The 101 automated tests are current for alpha.4. The 16-check AiNxt smoke is a separately scoped prior-commit record. Neither establishes payment connectivity, certification, or production readiness.</p>
+          </div>
+
+          <div class="evidence-grid">
+            <article class="evidence-card reveal">
+              <span class="evidence-value">95</span>
+              <h3>Core tests</h3>
+              <p>Policy, identity, evidence, HTTP, MCP, adapter, storage contract, audit, and boundary behavior.</p>
+              <span class="evidence-state"><i></i> Passing in alpha.4</span>
+            </article>
+            <article class="evidence-card reveal" data-delay="1">
+              <span class="evidence-value">6</span>
+              <h3>SDK tests</h3>
+              <p>Role-shaped capability separation, request encoding, direct JWKS use, and structured errors.</p>
+              <span class="evidence-state"><i></i> Passing in alpha.4</span>
+            </article>
+            <article class="evidence-card reveal" data-delay="2">
+              <span class="evidence-value">16/16</span>
+              <h3>AiNxt smoke checks</h3>
+              <p>At Parimit commit <code>d9807d3</code>: one synthetic coffee proposal, exact replay, policy-denied mobility fixture, and loopback-only components.</p>
+              <span class="evidence-state"><i></i> Prior-commit public evidence</span>
+            </article>
+          </div>
+
+          <div class="evidence-detail reveal">
+            <div class="evidence-detail-copy">
+              <span class="status status-pass">Published result · d9807d3</span>
+              <h3>The recorded allowed scenario stopped at <code>AWAITING_APPROVAL</code>.</h3>
+              <p>Zero approvals were attempted. No interactive human participated. The denied scenario created nothing. Payment-execution capability remained false.</p>
+            </div>
+            <div class="evidence-links">
+              <a href="https://github.com/cad07/parimit/releases/download/v0.1.0-alpha.4/live-ainxt-keycloak-smoke-d9807d3.json">
+                <span>JSON</span><strong>Evidence summary</strong><small>Redacted public record</small>
+              </a>
+              <a href="https://github.com/cad07/parimit/releases/download/v0.1.0-alpha.4/ainxt-local-component-manifest-v0.2.json">
+                <span>JSON</span><strong>Component manifest</strong><small>Reviewed local inputs</small>
+              </a>
+              <a href="https://github.com/cad07/parimit/actions">
+                <span>CI</span><strong>GitHub checks</strong><small>Tests and guardrails</small>
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section provenance-section" id="provenance">
+        <div class="shell provenance-layout">
+          <div class="provenance-mark reveal" aria-hidden="true">
+            <span>AI</span>
+            <span class="provenance-plus">+</span>
+            <span>∥</span>
+          </div>
+          <div class="provenance-copy reveal" data-delay="1">
+            <p class="eyebrow">Relationship to India’s ecosystem</p>
+            <h2>Independent software. Public inspiration. No implied endorsement.</h2>
+            <p>
+              Parimit is independently implemented. Its separation between an AI-facing proposal plane and a payment boundary was informed by publicly available NPCI AiNxt OS material. No AiNxt source code was copied into the initial implementation.
+            </p>
+            <p>
+              The optional AiNxt adapter is a controlled compatibility study—not an NPCI integration, certification, native tool, AtOM connection, UPI connection, or authorization to access a regulated payment rail.
+            </p>
+            <a class="inline-link" href="https://github.com/cad07/parimit/blob/main/docs/architecture.md#source-provenance">Inspect source provenance <span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section roadmap-section" id="roadmap">
+        <div class="shell roadmap-layout">
+          <div class="roadmap-intro reveal">
+            <p class="eyebrow">Honest readiness</p>
+            <h2>Strong research alpha.<br /><em>Hard no-go for real money.</em></h2>
+            <p>The next milestones strengthen identity, storage, operations, and external accountability before any regulated integration is even considered.</p>
+            <a class="button button-dark" href="https://github.com/cad07/parimit/blob/main/docs/real-integration-requirements.md">Read the real-integration gates</a>
+          </div>
+
+          <div class="roadmap-list">
+            <article class="roadmap-item roadmap-current reveal">
+              <div class="roadmap-marker"><span></span></div>
+              <div>
+                <div class="roadmap-top"><h3>Public research alpha</h3><span>Available now</span></div>
+                <p>Proposal governance, safe interfaces, local demo, OIDC pilot profile, evidence, documentation, and public release.</p>
+              </div>
+            </article>
+            <article class="roadmap-item reveal" data-delay="1">
+              <div class="roadmap-marker"><span></span></div>
+              <div>
+                <div class="roadmap-top"><h3>Interactive synthetic pilot</h3><span>Next gate</span></div>
+                <p>Two real people complete reviewer and administrator device login, inspect exact fictional proposals, decide, and retain a redacted report.</p>
+              </div>
+            </article>
+            <article class="roadmap-item reveal" data-delay="2">
+              <div class="roadmap-marker"><span></span></div>
+              <div>
+                <div class="roadmap-top"><h3>Production-grade control plane</h3><span>Not built</span></div>
+                <p>Live PostgreSQL parity, managed keys, distributed replay defense, monitoring, rate limits, backup, disaster recovery, and independent security work.</p>
+              </div>
+            </article>
+            <article class="roadmap-item roadmap-blocked reveal" data-delay="3">
+              <div class="roadmap-marker"><span>×</span></div>
+              <div>
+                <div class="roadmap-top"><h3>Regulated payment integration</h3><span>Not authorized</span></div>
+                <p>A separate deterministic executor, licensed bank or PSP relationship, webhooks, reconciliation, certification, legal review, and written approvals would all be required.</p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section developer-section" id="developers">
+        <div class="shell developer-layout">
+          <div class="developer-copy reveal">
+            <p class="eyebrow eyebrow-light">For builders and reviewers</p>
+            <h2>Clone it. Inspect it. Keep the boundary intact.</h2>
+            <p>Parimit runs locally on Node.js 24 with no third-party runtime dependencies. The browser demo stores demo state locally; use only fictional data.</p>
+            <div class="developer-links">
+              <a href="https://github.com/cad07/parimit/blob/main/docs/demo.md">Safe demo</a>
+              <a href="https://github.com/cad07/parimit/blob/main/docs/threat-model.md">Threat model</a>
+              <a href="https://github.com/cad07/parimit/blob/main/SECURITY.md">Security policy</a>
+              <a href="https://github.com/cad07/parimit/blob/main/CONTRIBUTING.md">Contributing</a>
+            </div>
+          </div>
+
+          <div class="code-window reveal" data-delay="1">
+            <div class="code-toolbar">
+              <div aria-hidden="true"><span></span><span></span><span></span></div>
+              <span>Terminal</span>
+              <button type="button" data-copy-command aria-label="Copy quick-start command" aria-live="polite">Copy</button>
+            </div>
+            <pre><code><span class="code-comment"># Run the proposal-only local demo</span>
+git clone https://github.com/cad07/parimit.git
+cd parimit
+npm start
+
+<span class="code-comment"># Verify tests, SDK and boundary checks</span>
+npm run check</code></pre>
+            <div class="code-footer"><span>Open</span><a href="http://localhost:8787">localhost:8787</a><small>after starting locally</small></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section faq-section" id="faq">
+        <div class="shell faq-layout">
+          <div class="section-heading reveal">
+            <p class="eyebrow">Plain answers</p>
+            <h2>Before you use Parimit.</h2>
+          </div>
+          <div class="faq-list">
+            <details class="reveal">
+              <summary>Can Parimit make a UPI or bank payment?<span aria-hidden="true">+</span></summary>
+              <p>No. The alpha has no bank, PSP, UPI, wallet, merchant, or payment-provider connector. The simulator creates labelled fictional outcomes only.</p>
+            </details>
+            <details class="reveal" data-delay="1">
+              <summary>Does reviewer approval authorize execution?<span aria-hidden="true">+</span></summary>
+              <p>No. Approval records that configured policy and reviewer-decision conditions were met; only OIDC mode authenticates the reviewer subject. The evidence is deliberately non-dispatchable and signs explicit false values for execution authority and money movement.</p>
+            </details>
+            <details class="reveal" data-delay="2">
+              <summary>Is this an NPCI product or endorsement?<span aria-hidden="true">+</span></summary>
+              <p>No. Parimit is an independent open-source project. Public AiNxt material informed part of the safety boundary, and a source-reviewed compatibility sidecar exists, but there is no NPCI endorsement, certification, or rail access.</p>
+            </details>
+            <details class="reveal" data-delay="3">
+              <summary>Is it production-ready?<span aria-hidden="true">+</span></summary>
+              <p>No. It is suitable for research, code review, local demonstrations, and a controlled synthetic pilot after interactive acceptance. Real-money production remains a hard no-go.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-section">
+        <div class="cta-pattern" aria-hidden="true"></div>
+        <div class="shell cta-inner reveal">
+          <div>
+            <p class="eyebrow eyebrow-light">Bounded by design</p>
+            <h2>Explore the proposal boundary.</h2>
+            <p>Read the code, reproduce the checks, and help strengthen the line between agent intent and real-world value movement.</p>
+          </div>
+          <div class="cta-actions">
+            <a class="button button-light" href="https://github.com/cad07/parimit">View on GitHub</a>
+            <a class="button button-outline-light" href="https://github.com/cad07/parimit/releases/download/v0.1.0-alpha.4/parimit-technical-white-paper-v0.2.pdf">Download white paper</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-top">
+        <div class="footer-brand">
+          <a class="brand" href="#top">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 32 32"><path class="shield" d="M16 3.5 26 7.4v7.8c0 6.9-4.2 11.7-10 13.8C10.2 26.9 6 22.1 6 15.2V7.4L16 3.5Z" /><path class="check" d="m11 16 3.2 3.2 7-7" /></svg>
+            </span>
+            <span class="brand-copy"><strong>Parimit</strong><small>Bounded authority</small></span>
+          </a>
+          <p>Open-source, proposal-only governance for AI-initiated payment intents.</p>
+        </div>
+        <div class="footer-links">
+          <div><strong>Project</strong><a href="https://github.com/cad07/parimit">Repository</a><a href="https://github.com/cad07/parimit/releases">Releases</a><a href="https://github.com/cad07/parimit/blob/main/CHANGELOG.md">Changelog</a></div>
+          <div><strong>Technical</strong><a href="https://github.com/cad07/parimit/blob/main/docs/architecture.md">Architecture</a><a href="https://github.com/cad07/parimit/blob/main/openapi.yaml">OpenAPI</a><a href="https://github.com/cad07/parimit/blob/main/docs/safety-boundary.md">Safety boundary</a></div>
+          <div><strong>Trust</strong><a href="https://github.com/cad07/parimit/blob/main/SECURITY.md">Security</a><a href="https://github.com/cad07/parimit/blob/main/GOVERNANCE.md">Governance</a><a href="https://github.com/cad07/parimit/blob/main/LICENSE">MIT licence</a></div>
+        </div>
+      </div>
+      <div class="shell footer-bottom">
+        <p>© <span data-year>2026</span> Parimit contributors.</p>
+        <p class="footer-warning">Research alpha · fictional data only · never enter payment credentials</p>
+      </div>
+    </footer>
+  </body>
+</html>
