@@ -459,13 +459,16 @@ payment execution was attempted by the automated runs.
 
 ### 8.2 Automated evidence
 
-The core suite reported 94 passing tests and the TypeScript SDK suite reported
-6 passing tests. The boundary check scanned selected source and integration
-files for prohibited authority surfaces and network behavior. GitHub checks on
-the release-candidate pull request [15] reported success for CI, CodeQL,
-dependency review, secret scanning, and the Keycloak pilot guardrails after the
-pin correction and release packaging. The corrected runtime snapshot
-`d9807d3` also passed the same local 100-test and boundary suite.
+The corrected runtime snapshot `d9807d3` passed 94 core tests and 6 TypeScript
+SDK tests, for 100 automated tests in total. The alpha.4 release tree adds one
+deterministic Keycloak token-boundary regression test, bringing the current
+totals to 95 core tests and 6 SDK tests, or 101 automated tests. The boundary
+check also passed after scanning selected source and integration files for
+prohibited authority surfaces and network behavior. GitHub checks on the
+release-candidate and stabilization pull requests [15, 16] reported success for
+CI, CodeQL, dependency review, secret scanning, and the Keycloak pilot
+guardrails after the pin correction, release packaging, and token-boundary
+fix.
 
 ### 8.3 Keycloak workload smoke
 
