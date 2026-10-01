@@ -85,7 +85,7 @@ SDK, or capability that can move funds.
 | Boundary scanner | Passed | Selected source and capability invariants | Formal verification or whole-program data-flow proof |
 | Keycloak workload smoke | 12 of 12 passed | TLS/OIDC workload identity and role separation | Interactive human acceptance |
 | Live AiNxt-Keycloak smoke | 16 of 16 passed | Reviewed local model-to-proposal compatibility | Model-byte attestation, native AiNxt integration, UPI, or execution |
-| Release-candidate PR checks | Passed | CI, CodeQL, secret scan, dependency review, and pilot guardrails on the release candidate [15] | Independent penetration testing or production certification |
+| Release-candidate PR checks | Passed | CI, CodeQL, secret scan, dependency review, and pilot guardrails on the release candidate and stabilization fix [15, 16] | Independent penetration testing or production certification |
 
 The source, documentation, tests, and build workflows are open under the MIT
 License. This paper accompanies the `v0.1.0-alpha.4` public research alpha.
@@ -675,6 +675,8 @@ those layers are added.
     <https://github.com/cad07/parimit/pull/9>
 15. Parimit contributors, **v0.1.0-alpha.4 release-candidate pull request 11**:
     <https://github.com/cad07/parimit/pull/11>
+16. Parimit contributors, **alpha.4 Keycloak token-boundary stabilization pull
+    request 12**: <https://github.com/cad07/parimit/pull/12>
 
 ## Appendix A - Public capability inventory
 
