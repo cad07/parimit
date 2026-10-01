@@ -80,12 +80,12 @@ SDK, or capability that can move funds.
 
 | Evidence layer | Result | What it supports | What it does not support |
 | --- | --- | --- | --- |
-| Core automated suite | 94 of 94 passed | Domain, policy, identity, evidence, HTTP, persistence, adapter, and adversarial behavior | Production security or regulatory acceptance |
+| Core automated suite | 95 of 95 passed | Domain, policy, identity, evidence, HTTP, persistence, adapter, and adversarial behavior | Production security or regulatory acceptance |
 | TypeScript SDK suite | 6 of 6 passed | Role-shaped client behavior and safe endpoint use | Compatibility with every client environment |
 | Boundary scanner | Passed | Selected source and capability invariants | Formal verification or whole-program data-flow proof |
 | Keycloak workload smoke | 12 of 12 passed | TLS/OIDC workload identity and role separation | Interactive human acceptance |
 | Live AiNxt-Keycloak smoke | 16 of 16 passed | Reviewed local model-to-proposal compatibility | Model-byte attestation, native AiNxt integration, UPI, or execution |
-| Release-candidate PR checks | Passed | CI, CodeQL, secret scan, dependency review, and pilot guardrails on the release candidate [15] | Independent penetration testing or production certification |
+| Release-candidate PR checks | Passed | CI, CodeQL, secret scan, dependency review, and pilot guardrails on the release candidate and stabilization fix [15, 16] | Independent penetration testing or production certification |
 
 The source, documentation, tests, and build workflows are open under the MIT
 License. This paper accompanies the `v0.1.0-alpha.4` public research alpha.
@@ -459,13 +459,16 @@ payment execution was attempted by the automated runs.
 
 ### 8.2 Automated evidence
 
-The core suite reported 94 passing tests and the TypeScript SDK suite reported
-6 passing tests. The boundary check scanned selected source and integration
-files for prohibited authority surfaces and network behavior. GitHub checks on
-the release-candidate pull request [15] reported success for CI, CodeQL,
-dependency review, secret scanning, and the Keycloak pilot guardrails after the
-pin correction and release packaging. The corrected runtime snapshot
-`d9807d3` also passed the same local 100-test and boundary suite.
+The corrected runtime snapshot `d9807d3` passed 94 core tests and 6 TypeScript
+SDK tests, for 100 automated tests in total. The alpha.4 release tree adds one
+deterministic Keycloak token-boundary regression test, bringing the current
+totals to 95 core tests and 6 SDK tests, or 101 automated tests. The boundary
+check also passed after scanning selected source and integration files for
+prohibited authority surfaces and network behavior. GitHub checks on the
+release-candidate and stabilization pull requests [15, 16] reported success for
+CI, CodeQL, dependency review, secret scanning, and the Keycloak pilot
+guardrails after the pin correction, release packaging, and token-boundary
+fix.
 
 ### 8.3 Keycloak workload smoke
 
@@ -675,6 +678,8 @@ those layers are added.
     <https://github.com/cad07/parimit/pull/9>
 15. Parimit contributors, **v0.1.0-alpha.4 release-candidate pull request 11**:
     <https://github.com/cad07/parimit/pull/11>
+16. Parimit contributors, **alpha.4 Keycloak token-boundary stabilization pull
+    request 12**: <https://github.com/cad07/parimit/pull/12>
 
 ## Appendix A - Public capability inventory
 
