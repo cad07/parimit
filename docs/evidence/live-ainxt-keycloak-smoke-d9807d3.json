@@ -1,0 +1,42 @@
+{
+  "schema_version": "parimit-live-evidence-summary-v1",
+  "classification": "LIVE_AINXT_KEYCLOAK_PROPOSAL_SMOKE",
+  "status": "PASS",
+  "observed_on": "2026-09-29",
+  "source_commit": "d9807d3c7f53c25464572f947c8c1daae690c355",
+  "source_worktree_dirty": false,
+  "retained_redacted_report_sha256": "79cd46b3f6438f68599835a08a5ed23f3fcc540bd04e9015ea574a44ab28d42d",
+  "checks": {
+    "passed": 16,
+    "total": 16
+  },
+  "ainxt": {
+    "expected_control_repo_commit": "454fb09cf1fff2bedb5aa3f4f1c391e4915f33dd",
+    "observed_control_repo_commit": "454fb09cf1fff2bedb5aa3f4f1c391e4915f33dd",
+    "listener_observed_loopback_only": true
+  },
+  "coffee_order": {
+    "status": "AWAITING_APPROVAL",
+    "approval_count": 0,
+    "required_approvals": 1,
+    "proposal_persisted": true,
+    "same_process_idempotent_replay": true,
+    "moves_money": false
+  },
+  "mobility_pass": {
+    "policy_allowed": false,
+    "policy_reasons": [
+      "PER_TRANSACTION_LIMIT_EXCEEDED",
+      "PAYEE_NOT_ALLOWLISTED",
+      "DISTINCT_DUAL_APPROVAL_REQUIRED"
+    ],
+    "simulation_persisted": false,
+    "creation_attempted": false,
+    "moves_money": false
+  },
+  "interactive_humans": false,
+  "approvals_attempted": 0,
+  "payment_execution_capability": false,
+  "contains_sensitive_values": false,
+  "note": "This publishable summary omits run IDs, intent IDs, idempotency keys, actor fingerprints, and credentials. The full redacted report remains local and git-ignored."
+}

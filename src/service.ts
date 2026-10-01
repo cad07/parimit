@@ -396,7 +396,7 @@ export class ParimitService {
     if (audienceValues.length !== 1) {
       throw new ParimitError(
         "INVALID_CONFIGURATION",
-        "alpha.3 requires exactly one envelope audience per deployment",
+        "This release requires exactly one envelope audience per deployment",
         500,
       );
     }
@@ -3292,7 +3292,7 @@ export class ParimitService {
   safetyMetadata(): Record<string, unknown> {
     return {
       name: "Parimit",
-      version: "0.1.0-alpha.3",
+      version: "0.1.0-alpha.4",
       mode: "PROPOSAL_ONLY",
       moves_money: false,
       connects_to_upi: false,

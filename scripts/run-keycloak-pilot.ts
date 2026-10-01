@@ -123,7 +123,7 @@ run the complete fictional acceptance flow.
                          Parimit checks. It never starts a human decision flow.
   --expected-ainxt-control-plane-sha SHA
                          Required with --ainxt-proposal-smoke. The exact
-                         64-character lowercase SHA-256 value to require.
+                         40-character lowercase AiNxt control-repo commit.
   --ainxt-timeout-ms N   AiNxt request timeout for the proposal smoke only
                          (1-120000; default 120000).
   --report PATH          Override the redacted JSON report path.

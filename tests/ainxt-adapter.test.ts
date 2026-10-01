@@ -13,7 +13,7 @@ const AINXT_URL = "http://127.0.0.1:8080";
 const PARIMIT_URL = "http://127.0.0.1:8787";
 const TOKEN = "header.payload.signature";
 const ACTOR_ID = `oidc:${"a".repeat(64)}`;
-const CONTROL_PLANE_SHA = "pilot-control-plane-2026-09-22";
+const CONTROL_PLANE_SHA = AINXT_OS_REVIEWED_COMMIT;
 
 interface CapturedCall {
   url: string;
@@ -38,7 +38,7 @@ interface FakeOptions {
 function safety(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     name: "Parimit",
-    version: "0.1.0-alpha.3",
+    version: "0.1.0-alpha.4",
     mode: "PROPOSAL_ONLY",
     moves_money: false,
     connects_to_upi: false,
@@ -355,7 +355,7 @@ test("AiNxt SSE envelope, ordering, turn binding, completion, and control-plane 
       return withoutTurn;
     }),
     (frames) => frames.map((frame, index) =>
-      index === 1 ? { ...frame, control_plane_sha: "changed-mid-turn" } : frame),
+      index === 1 ? { ...frame, control_plane_sha: "b".repeat(40) } : frame),
     (frames) => frames.map((frame, index) =>
       index === 2 ? { ...frame, outcome: "capped" } : frame),
     (frames) => [

@@ -4,7 +4,10 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 
-import { AiNxtParimitAdapter } from "../integrations/ainxt/adapter.ts";
+import {
+  AINXT_OS_REVIEWED_COMMIT,
+  AiNxtParimitAdapter,
+} from "../integrations/ainxt/adapter.ts";
 import { createIdentityProviderFromEnvironment } from "../src/auth.ts";
 import { createHttpHandler } from "../src/http.ts";
 import { createServiceFromEnvironment } from "../src/service.ts";
@@ -152,7 +155,7 @@ test("environment OIDC verifier and HTTP authorization compose end to end", asyn
       turn_id: request.turn,
       seq,
       ts: `2026-09-22T00:00:0${seq}Z`,
-      control_plane_sha: "oidc-integration-control-plane",
+      control_plane_sha: AINXT_OS_REVIEWED_COMMIT,
       type,
       ...fields,
     });

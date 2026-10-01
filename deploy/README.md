@@ -1,7 +1,7 @@
 # Single-tenant pilot deployment
 
 This directory provides a conservative deployment path for the proposal-only
-alpha.3 pilot. It runs one Parimit container with SQLite and exposes its HTTP
+current-alpha pilot. It runs one Parimit container with SQLite and exposes its HTTP
 port only on host loopback. An operator-managed reverse proxy must provide the
 public HTTPS endpoint.
 
@@ -161,7 +161,7 @@ Use the host platform's encrypted volume-snapshot mechanism. A valid pilot
 backup is a crash-consistent set of the SQLite data, the exact receipt-key
 version, and the envelope private/public key material used by that deployment.
 
-The alpha.3 receipt key, tenant, envelope issuer, single audience,
+The current-alpha receipt key, tenant, envelope issuer, single audience,
 authentication mode, exact identity trust domain, policy-configuration digest,
 and envelope lifetime policy are database-bound and cannot be rotated or
 retargeted in place. A mismatch, or a missing root beside material v3 history,

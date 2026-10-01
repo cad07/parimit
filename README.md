@@ -36,7 +36,7 @@ for a single-tenant pilot and keeps agent, approver, consumer, and admin roles s
 Clearly labelled, spoofable headers remain available only for an explicit
 local demo. No surface can dispatch an approval to a payment rail.
 
-## What works in v0.1.0-alpha.3
+## What works in v0.1.0-alpha.4
 
 - Create a proposal with an agent-scoped idempotency key.
 - Validate amount, currency, payee, purpose, and expiry.
@@ -123,7 +123,7 @@ device logins and to confirm each exact fictional proposal before a decision.
 For CI or connectivity diagnostics, `npm run pilot:keycloak:smoke` exercises
 workload authentication only; it never approves a proposal and is not human
 acceptance. With a separately running, loopback-only AiNxt model runtime,
-`npm run pilot:ainxt:keycloak -- --expected-ainxt-control-plane-sha '<exact-AiNxt-control-plane-SHA>'`
+`npm run pilot:ainxt:keycloak -- --expected-ainxt-control-plane-sha '<exact-reviewed-control-repo-commit>'`
 keeps the real Keycloak agent token in-process and proves only the bounded path
 through one `AWAITING_APPROVAL` proposal and a policy-denied simulation. It
 never performs a human decision and is not payment integration. See
@@ -150,7 +150,7 @@ file, while keeping its container host, port, database path, and demo mode fixed
 | `PARIMIT_RECEIPT_KEY` | insecure development value | HMAC key for approval receipts; OIDC mode requires at least 32 UTF-8 bytes |
 | `PARIMIT_TENANT_ID` | `local-demo` | Single deployment tenant bound into new v3 intent digests and envelopes |
 | `PARIMIT_ENVELOPE_ISSUER` | `https://parimit.local` | Exact HTTPS or URN issuer carried in signed envelopes |
-| `PARIMIT_ENVELOPE_AUDIENCES` | `urn:parimit:consumer:local-demo` | Exactly one relying-party trust URI in alpha.3; multiple audiences are rejected |
+| `PARIMIT_ENVELOPE_AUDIENCES` | `urn:parimit:consumer:local-demo` | Exactly one relying-party trust URI in the current alpha; multiple audiences are rejected |
 | `PARIMIT_ENVELOPE_TTL_SECONDS` | `300` | Maximum signed-envelope lifetime, capped at 3600 seconds and the proposal deadline |
 | `PARIMIT_ENVELOPE_PRIVATE_KEY_PEM_BASE64` | ephemeral in demo | Base64-encoded PKCS#8 Ed25519 private-key PEM; required in non-demo mode |
 | `PARIMIT_ENVELOPE_SIGNING_KEY_ID` | public-key thumbprint | Optional stable signing-key identifier |
@@ -257,6 +257,7 @@ The repository enforces part of this boundary with
 
 ## Documentation
 
+- [Technical white paper v0.2](docs/parimit-technical-white-paper-v0.2.md) ([PDF](output/pdf/parimit-technical-white-paper-v0.2.pdf))
 - [Alpha.1 technical design paper (historical snapshot)](docs/design-paper.md) ([PDF](docs/parimit-design-paper-v0.1.pdf))
 - [Architecture](docs/architecture.md)
 - [API and MCP usage](docs/api.md)
@@ -274,11 +275,19 @@ The repository enforces part of this boundary with
 - [Decision record: signed evidence envelopes](docs/decisions/0002-evidence-envelope.md)
 - [Decision record: local Keycloak pilot](docs/decisions/0003-keycloak-local-pilot.md)
 
+Rebuild the white-paper PDF with Python 3 and the pinned documentation
+dependency:
+
+```sh
+python3 -m pip install -r requirements-white-paper.txt
+python3 scripts/build-white-paper.py
+```
+
 ## Relationship to NPCI AiNxt OS
 
 The design was informed by the public, non-dispatchable payment boundary in
 NPCI's AiNxt OS, reviewed at commit
-[`5b6fbb90eb715384559256f7257e4d661cb1d17b`](https://github.com/NPCI/ainxt-os/tree/5b6fbb90eb715384559256f7257e4d661cb1d17b).
+[`454fb09cf1fff2bedb5aa3f4f1c391e4915f33dd`](https://github.com/NPCI/ainxt-os/tree/454fb09cf1fff2bedb5aa3f4f1c391e4915f33dd).
 AiNxt's settlement documentation states that its payment core does not perform
 I/O or talk to banks. Parimit preserves the same separation in its own
 independently written implementation.

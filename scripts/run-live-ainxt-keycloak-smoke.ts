@@ -80,8 +80,8 @@ export function requireLoopbackOnlyAiNxtBindings(
 
 export function requireExpectedControlPlaneSha(value: unknown): string {
   expect(
-    typeof value === "string" && /^[0-9a-f]{64}$/u.test(value),
-    "The expected AiNxt control-plane SHA must be exactly 64 lowercase hexadecimal characters",
+    typeof value === "string" && /^[0-9a-f]{40}$/u.test(value),
+    "The expected AiNxt control-plane SHA must be exactly 40 lowercase hexadecimal characters",
   );
   return value;
 }

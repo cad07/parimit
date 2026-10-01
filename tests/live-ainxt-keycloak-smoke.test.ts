@@ -14,7 +14,7 @@ import {
   runLiveAiNxtKeycloakProposalSmoke,
 } from "../scripts/run-live-ainxt-keycloak-smoke.ts";
 
-const CONTROL_PLANE_SHA = "a".repeat(64);
+const CONTROL_PLANE_SHA = "a".repeat(40);
 const ACTOR_ID = `oidc:${"b".repeat(64)}`;
 
 test("AiNxt listener evidence accepts only loopback bindings", () => {
@@ -211,13 +211,13 @@ test("live AiNxt Keycloak smoke creates/replays coffee and only simulates denied
 test("live AiNxt Keycloak smoke rejects unpinned and mismatched control-plane values", async () => {
   assert.throws(
     () => requireExpectedControlPlaneSha("unpinned"),
-    /exactly 64 lowercase hexadecimal characters/u,
+    /exactly 40 lowercase hexadecimal characters/u,
   );
   assert.throws(
-    () => requireExpectedControlPlaneSha("A".repeat(64)),
-    /exactly 64 lowercase hexadecimal characters/u,
+    () => requireExpectedControlPlaneSha("A".repeat(40)),
+    /exactly 40 lowercase hexadecimal characters/u,
   );
-  const adapter = new FakeAdapter({ controlPlaneSha: "c".repeat(64) });
+  const adapter = new FakeAdapter({ controlPlaneSha: "c".repeat(40) });
   let createAttempted = false;
   await assert.rejects(
     runLiveAiNxtCoffeeProposalSmoke(adapter, {

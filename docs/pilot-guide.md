@@ -1,6 +1,6 @@
 # External pilot guide
 
-This guide defines the narrow external-pilot envelope for Parimit's alpha.3
+This guide defines the narrow external-pilot envelope for Parimit's current alpha
 track. It is an evaluation of proposal governance, not a payment pilot.
 
 > **Boundary:** Parimit does not connect to UPI, a bank, a PSP, a wallet, or
