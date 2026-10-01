@@ -157,6 +157,10 @@ dual control, and terminal or expired proposals cannot be approved.
 Authorization is enforced by the server. SDK role-shaped clients reduce
 accidental misuse but are not a security boundary.
 
+The `admin` role is deliberately broad for a local or synthetic pilot. A
+production system must split these capabilities across separately accountable
+roles instead of reusing this convenience role.
+
 ## Identity-provider setup
 
 Create a dedicated resource/API audience for Parimit that is not reused as an

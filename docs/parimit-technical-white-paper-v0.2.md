@@ -233,10 +233,14 @@ from the Parimit core.
 | `agent` | Simulate, create, inspect, and cancel its own proposals | Human decisions, evidence consumption, mock outcomes, execution |
 | `approver` | Approve or reject an exact proposal | Creating agent-owned proposals, administration, execution |
 | `consumer` | Verify and atomically consume an evidence envelope | Proposal browsing, approval, execution |
-| `admin` | Record labelled mock outcomes and exercise pilot administration | Live provider action or money movement |
+| `admin` | Read all proposals and audit; cancel eligible proposals; approve or reject; issue, verify, and consume evidence; record labelled mock outcomes | Creating as an agent, live provider action, money movement, or production-grade separation of duties |
 
 Every authenticated subject must map to exactly one internal role. Missing,
 unknown, or ambiguous mappings fail closed.
+
+The `admin` role is deliberately broad for a local or synthetic pilot. It is
+not a production separation-of-duties design and must not be carried unchanged
+into a real payment deployment.
 
 ### 4.2 Lifecycle
 
