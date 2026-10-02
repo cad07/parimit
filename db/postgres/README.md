@@ -2,11 +2,12 @@
 
 ## Status
 
-This directory is a reviewed starting point for durable storage, not a runtime
-feature. `ParimitService` remains synchronous and directly coupled to
-`node:sqlite`; setting a database URL does nothing. The repository must not
-claim PostgreSQL runtime support until the async port and live parity suite in
-this document are complete.
+This directory is a reviewed integration track for durable storage, not a
+runtime feature. `ParimitService` remains synchronous and directly coupled to
+`node:sqlite`; setting a database URL does nothing. A deliberately narrow async
+repository slice now proves proposal create/read storage mechanics against a
+real PostgreSQL server, but the repository must not claim PostgreSQL runtime support until the
+complete service port and parity suite in this document are complete.
 
 What is available now:
 
@@ -28,15 +29,21 @@ What is available now:
   rotate this root;
 - a small driver-neutral transaction and audit-append contract in
   `src/storage/postgres-contract.ts`;
-- dependency-free contract tests.
+- an async proposal repository slice covering atomic create, idempotent replay,
+  normalized readback, and repeatable-read lookup;
+- bounded whole-transaction retry with a fresh pool checkout and transaction per attempt;
+- SHA-256 migration-manifest consistency validation;
+- dependency-free contract tests plus a test-only `pg` driver and live
+  two-pool concurrency gate for idempotency, daily exposure, rollback, and
+  audit-chain linearity.
 
 What is not available now:
 
-- a PostgreSQL driver or connection pool;
 - a repository implementation for every service operation;
 - a runtime configuration switch;
 - SQLite-to-PostgreSQL data migration;
-- a live PostgreSQL parity or concurrency test in CI;
+- full service, HTTP, MCP, envelope, approval, observation, corruption, and
+  process-kill parity in CI;
 - multi-tenant request routing, row-level security, backups, or operational
   monitoring.
 
@@ -59,8 +66,12 @@ locking and snapshots explicit. The port must preserve these rules:
 5. Insert state, evidence, and the corresponding audit event atomically.
 6. Run read-only integrity checks in one `REPEATABLE READ READ ONLY` snapshot.
 7. Retry the entire idempotent transaction, with a low bounded retry count,
-   after PostgreSQL SQLSTATE `40001` (serialization failure) or `40P01`
-   (deadlock). Never retry just the final statement.
+   after PostgreSQL SQLSTATE `40001` (serialization failure), `40P01`
+   (deadlock), or the exact `23505` collision on
+   `audit_events_no_forks`. The latter is the database backstop for two
+   serializable snapshots that selected the same predecessor before one waited
+   on the parent lock. Never retry another unique violation, and never retry
+   just the final statement.
 8. Order observations by their PostgreSQL `sequence`, never by timestamps.
 
 The migration also locks the parent intent before each audit insert and
@@ -73,17 +84,52 @@ intent, receipt, state, and audit hashes before returning data.
 Use a dedicated empty database and a migration-owner credential:
 
 ```sh
-psql "$PARIMIT_TEST_POSTGRES_URL" \
-  --set ON_ERROR_STOP=1 \
-  --file db/postgres/001_initial.sql
+psql "$PARIMIT_TEST_POSTGRES_URL" --set ON_ERROR_STOP=1 <<'SQL'
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+REVOKE CONNECT ON DATABASE parimit_test FROM PUBLIC;
+SQL
+
+for migration in db/postgres/[0-9][0-9][0-9]_*.sql; do
+  psql "$PARIMIT_TEST_POSTGRES_URL" \
+    --set ON_ERROR_STOP=1 \
+    --file "$migration"
+done
 ```
 
-The migration is deliberately apply-once rather than superficially
-idempotent. A real migration runner must record its checksum and refuse edited
-or out-of-order migrations.
+Each migration is deliberately apply-once rather than superficially
+idempotent. `npm run check:postgres-migrations` catches a SQL file that no
+longer matches the checked-in `migrations.json` manifest and refuses missing,
+unlisted, duplicate, or out-of-order entries. Because the manifest can change
+in the same commit, this is a repository-consistency check—not proof that a
+published migration was never edited. A real deployment runner must record
+the applied checksums in the target database and CI must compare published
+migrations with release history before runtime selection can be enabled.
 
-Use separate migration-owner and runtime roles. The runtime role should own no
-tables and should receive only:
+Run the current live vertical-slice gate only against a dedicated empty test
+database:
+
+```sh
+npm ci --ignore-scripts
+PARIMIT_TEST_POSTGRES_URL='postgresql://postgres:...@127.0.0.1:5432/parimit_test' \
+PARIMIT_ALLOW_POSTGRES_TEST_DDL='I_UNDERSTAND_THIS_DATABASE_WILL_BE_MODIFIED' \
+PARIMIT_ALLOW_PRIVATE_CONTAINER_POSTGRES='I_UNDERSTAND_THE_TEST_DATABASE_USES_A_PRIVATE_CONTAINER_ADDRESS' \
+  npm run test:postgres
+```
+
+The live gate accepts only a loopback database named exactly `parimit_test`,
+forbids URL parameters that could redirect the driver, verifies the connected
+database and server address, requires the explicit destructive-test opt-in
+above, and refuses DDL when a user schema or public-schema object already
+exists. The additional private-container opt-in is required only when Docker
+port forwarding makes PostgreSQL report a private bridge address instead of
+loopback. It creates the `parimit` schema and a restricted test runtime role;
+it must never target a shared or production database.
+
+Use separate migration-owner and runtime roles. Before granting runtime
+access, revoke `CREATE ON SCHEMA public FROM PUBLIC` (required on PostgreSQL
+14) and revoke `CONNECT` on the dedicated database from `PUBLIC`; then grant
+`CONNECT` only to the migration owner, runtime role, and named operational
+roles. The runtime role should own no tables and should receive only:
 
 - `USAGE` on schema `parimit`;
 - `SELECT` and `INSERT` on `policy_subjects` plus the privilege needed for its

@@ -26,10 +26,12 @@
     "pilot:ainxt:keycloak": "node --experimental-strip-types scripts/run-keycloak-pilot.ts --ainxt-proposal-smoke",
     "pilot:keycloak:accept": "node --experimental-strip-types scripts/run-keycloak-pilot.ts",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:postgres": "node --experimental-strip-types --test tests/postgres-live.test.ts",
     "test:sdk": "node --experimental-strip-types --test sdk/typescript/tests/*.test.ts",
     "check:site": "node scripts/check-site.mjs",
+    "check:postgres-migrations": "node --experimental-strip-types scripts/check-postgres-migrations.ts",
     "check:boundary": "node --experimental-strip-types scripts/check-boundary.ts",
-    "check": "node --experimental-strip-types --test tests/*.test.ts && node --experimental-strip-types --test sdk/typescript/tests/*.test.ts && node --experimental-strip-types scripts/check-boundary.ts && node scripts/check-site.mjs"
+    "check": "node --experimental-strip-types --test tests/*.test.ts && node --experimental-strip-types --test sdk/typescript/tests/*.test.ts && node --experimental-strip-types scripts/check-postgres-migrations.ts && node --experimental-strip-types scripts/check-boundary.ts && node scripts/check-site.mjs"
   },
   "keywords": [
     "ai-agents",
@@ -41,5 +43,8 @@
     "non-dispatchable",
     "audit"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "pg": "^8.16.3"
+  }
 }

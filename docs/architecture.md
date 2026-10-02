@@ -128,9 +128,12 @@ constraint statically.
 The current-alpha HTTP edge can verify OIDC identity and fail closed on role mapping.
 New intents bind a single configured tenant, but the shipped runtime does not
 route multiple tenants and remains SQLite-backed. The
-PostgreSQL schema and transaction contract under `db/postgres/` are an
-integration track, not a runtime selector. Multi-tenancy, managed key custody,
-live PostgreSQL parity, rate limiting, and external audit anchoring are still
+PostgreSQL schema, transaction contract, and the non-selectable create/read
+repository slice under `db/postgres/` and `src/storage/` are an integration
+track, not a runtime selector. The live gate proves only initial proposal
+idempotency, daily-exposure serialization, atomic rollback, and linear audit
+append across multiple pools. Full service parity, multi-tenancy, managed key
+custody, rate limiting, backups, and external audit anchoring are still
 deliberately not implied.
 
 ## Source provenance

@@ -7,6 +7,23 @@ release.
 
 ## [Unreleased]
 
+### Added
+
+- Added a non-selectable asynchronous PostgreSQL proposal repository slice for
+  create, idempotent replay, and repeatable-read lookup, with normalized
+  `boolean`, `jsonb`, and `bigint` values at the storage boundary.
+- Added live two-pool PostgreSQL tests for identical and conflicting
+  idempotency requests, daily-exposure races, intent/audit atomic rollback,
+  and competing audit appends, plus migration-manifest consistency checks.
+
+### Security
+
+- Bounded whole-transaction retries to serialization failures, deadlocks, and
+  the exact `audit_events_no_forks` collision; unrelated unique violations are
+  never retried.
+- Kept PostgreSQL non-selectable and the public runtime SQLite-only; no payment
+  executor, provider credential, live rail, or new agent authority was added.
+
 ## [0.1.0-alpha.4] - 2026-10-01
 
 ### Added

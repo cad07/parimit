@@ -1,0 +1,15 @@
+{
+  "format": "parimit-postgres-migration-manifest-v1",
+  "migrations": [
+    {
+      "version": "001",
+      "file": "001_initial.sql",
+      "sha256": "9883ce28af126b42a8750b800e9d9c3d579d3fc89878b11c738e2324bd417abf"
+    },
+    {
+      "version": "002",
+      "file": "002_runtime_foundation.sql",
+      "sha256": "c157cda75f79e7101494c091159929dc78b020a0f2aa406689e3a8cd87f34a41"
+    }
+  ]
+}

@@ -36,7 +36,10 @@ for a single-tenant pilot and keeps agent, approver, consumer, and admin roles s
 Clearly labelled, spoofable headers remain available only for an explicit
 local demo. No surface can dispatch an approval to a payment rail.
 
-## What works in v0.1.0-alpha.4
+## What works in the current source tree
+
+The latest tagged release is `v0.1.0-alpha.4`; PostgreSQL items below are
+unreleased and remain non-selectable.
 
 - Create a proposal with an agent-scoped idempotency key.
 - Validate amount, currency, payee, purpose, and expiry.
@@ -64,8 +67,10 @@ local demo. No surface can dispatch an approval to a payment rail.
 - Use the optional AiNxt source-review-anchored sidecar adapter for a synthetic,
   proposal-only compatibility pilot; it is not a native AiNxt tool or NPCI
   endorsement.
-- Review the PostgreSQL 14+ schema and transaction contract for the next
-  storage port. PostgreSQL is not runtime-selectable yet.
+- Exercise a non-selectable PostgreSQL create/read repository slice with live
+  idempotency, daily-exposure, rollback, and audit-chain concurrency tests.
+  The running service is still SQLite-only and full PostgreSQL parity remains
+  incomplete.
 - Run locally with Node.js 24 and no third-party runtime dependencies.
 
 ## Quick start
@@ -274,6 +279,8 @@ The repository enforces part of this boundary with
 - [Decision record: proposal-only](docs/decisions/0001-proposal-only.md)
 - [Decision record: signed evidence envelopes](docs/decisions/0002-evidence-envelope.md)
 - [Decision record: local Keycloak pilot](docs/decisions/0003-keycloak-local-pilot.md)
+- [Decision record: AiNxt reference adapter](docs/decisions/0004-ainxt-reference-adapter.md)
+- [Decision record: non-selectable PostgreSQL slice](docs/decisions/0005-postgres-nonselectable-slice.md)
 
 Rebuild the white-paper PDF with Python 3 and the pinned documentation
 dependency:

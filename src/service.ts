@@ -11,6 +11,10 @@ import {
 } from "./envelope.ts";
 import { ParimitError } from "./errors.ts";
 import {
+  CURRENT_PAYMENT_INTENT_VERSION,
+  currentPaymentIntentPayload,
+} from "./intent-payload.ts";
+import {
   LOCAL_DEMO_IDENTITY_TRUST_DOMAIN,
 } from "./identity-trust.ts";
 import {
@@ -60,7 +64,7 @@ const AUTHORIZATION_ENVELOPE_NOTICE =
 
 const LEGACY_INTENT_VERSION: PaymentIntentVersion = "parimit-payment-intent-v1";
 const POLICY_BOUND_INTENT_VERSION: PaymentIntentVersion = "parimit-payment-intent-v2";
-const CURRENT_INTENT_VERSION: PaymentIntentVersion = "parimit-payment-intent-v3";
+const CURRENT_INTENT_VERSION = CURRENT_PAYMENT_INTENT_VERSION;
 const DEFAULT_TENANT_ID = "local-demo";
 const DEFAULT_ENVELOPE_ISSUER = "https://parimit.local";
 const DEFAULT_ENVELOPE_TTL_SECONDS = 300;
@@ -1167,27 +1171,15 @@ export class ParimitService {
     policy: PolicyDecision,
     initialStatus: InitialIntentStatus,
   ): Record<string, unknown> {
-    return {
-      version: CURRENT_INTENT_VERSION,
+    return currentPaymentIntentPayload({
       id,
-      tenant_id: this.tenantId,
-      idempotency_key: input.idempotencyKey,
-      requested_by: { type: "agent", id: input.agentId },
-      on_behalf_of: input.onBehalfOf,
-      amount: { currency: input.currency, minor: String(input.amountMinor) },
-      payee_reference: input.payeeReference,
-      purpose: input.purpose,
-      initial_status: initialStatus,
-      policy: {
-        allowed: policy.allowed,
-        reasons: policy.reasons,
-        rules_version: policy.rules_version,
-        config_digest: policy.config_digest,
-        required_approvals: policy.required_approvals,
-      },
-      created_at: createdAt,
-      expires_at: expiresAt,
-    };
+      tenantId: this.tenantId,
+      proposal: input,
+      createdAt,
+      expiresAt,
+      policy,
+      initialStatus,
+    });
   }
 
   private intentPayloadFromRow(row: SqlRow): Record<string, unknown> {
