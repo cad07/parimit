@@ -7,11 +7,15 @@ import {
   POSTGRES_RUNTIME_SUPPORT,
   PostgresContractError,
   appendAuditEvent,
+  isRetryablePostgresTransactionError,
   lockIntentForMutation,
   lockPolicySubject,
   withConsistentReadTransaction,
+  withSerializablePoolTransaction,
   withSerializableWriteTransaction,
   type PostgresClientLike,
+  type PostgresPoolClientLike,
+  type PostgresPoolLike,
   type PostgresQueryResult,
   type PostgresTransactionClient,
   type PostgresValue,
@@ -45,6 +49,29 @@ class FakePostgresClient implements PostgresClientLike {
   }
 }
 
+class FakePoolClient extends FakePostgresClient implements PostgresPoolClientLike {
+  readonly releases: Array<Error | boolean | undefined> = [];
+
+  release(error?: Error | boolean): void {
+    this.releases.push(error);
+  }
+}
+
+class FakePool implements PostgresPoolLike {
+  readonly clients: FakePoolClient[] = [];
+  private readonly createClient: (attempt: number) => FakePoolClient;
+
+  constructor(createClient: (attempt: number) => FakePoolClient) {
+    this.createClient = createClient;
+  }
+
+  async connect(): Promise<FakePoolClient> {
+    const client = this.createClient(this.clients.length + 1);
+    this.clients.push(client);
+    return client;
+  }
+}
+
 test("PostgreSQL write transactions are serializable and atomic", async () => {
   const success = new FakePostgresClient();
   const value = await withSerializableWriteTransaction(success, async (transaction) => {
@@ -68,6 +95,162 @@ test("PostgreSQL write transactions are serializable and atomic", async () => {
   assert.deepEqual(
     failure.calls.map((call) => call.text),
     ["BEGIN ISOLATION LEVEL SERIALIZABLE", "ROLLBACK"],
+  );
+});
+
+test("pool transaction retries the complete unit with a fresh checkout and transaction", async () => {
+  const retries: Array<{
+    attempt: number;
+    nextAttempt: number;
+    sqlState: string;
+    constraint?: string;
+  }> = [];
+  const pool = new FakePool((attempt) =>
+    new FakePoolClient((text) => {
+      if (text === "SELECT mutation" && attempt < 3) {
+        const error = Object.assign(new Error("serialization conflict"), {
+          code: attempt === 1 ? "40001" : "40P01",
+        });
+        throw error;
+      }
+      return { rows: [], rowCount: 0 };
+    }),
+  );
+
+  const result = await withSerializablePoolTransaction(
+    pool,
+    async (transaction) => {
+      await transaction.query("SELECT mutation");
+      return "committed";
+    },
+    { maxAttempts: 3, onRetry: (details) => retries.push(details) },
+  );
+
+  assert.equal(result, "committed");
+  assert.equal(pool.clients.length, 3);
+  assert.deepEqual(
+    pool.clients.map((client) => client.calls.map((call) => call.text)),
+    [
+      ["BEGIN ISOLATION LEVEL SERIALIZABLE", "SELECT mutation", "ROLLBACK"],
+      ["BEGIN ISOLATION LEVEL SERIALIZABLE", "SELECT mutation", "ROLLBACK"],
+      ["BEGIN ISOLATION LEVEL SERIALIZABLE", "SELECT mutation", "COMMIT"],
+    ],
+  );
+  assert.deepEqual(retries, [
+    { attempt: 1, nextAttempt: 2, sqlState: "40001" },
+    { attempt: 2, nextAttempt: 3, sqlState: "40P01" },
+  ]);
+  assert.deepEqual(pool.clients.map((client) => client.releases), [[undefined], [undefined], [undefined]]);
+});
+
+test("pool transaction never retries non-transaction errors or beyond the bound", async () => {
+  assert.equal(isRetryablePostgresTransactionError({ code: "40001" }), true);
+  assert.equal(isRetryablePostgresTransactionError({ code: "40P01" }), true);
+  assert.equal(isRetryablePostgresTransactionError({ code: "23505" }), false);
+  assert.equal(
+    isRetryablePostgresTransactionError({
+      code: "23505",
+      schema: "parimit",
+      table: "audit_events",
+      constraint: "audit_events_no_forks",
+    }),
+    true,
+  );
+  assert.equal(
+    isRetryablePostgresTransactionError({ code: "23505", constraint: "another_unique" }),
+    false,
+  );
+  assert.equal(
+    isRetryablePostgresTransactionError({
+      code: "23505",
+      schema: "untrusted",
+      table: "audit_events",
+      constraint: "audit_events_no_forks",
+    }),
+    false,
+  );
+
+  const nonRetryable = Object.assign(new Error("unique violation"), { code: "23505" });
+  const firstPool = new FakePool(() =>
+    new FakePoolClient((text) => {
+      if (text === "SELECT mutation") throw nonRetryable;
+      return { rows: [], rowCount: 0 };
+    }),
+  );
+  await assert.rejects(
+    withSerializablePoolTransaction(firstPool, async (transaction) => {
+      await transaction.query("SELECT mutation");
+    }),
+    (error: unknown) => error === nonRetryable,
+  );
+  assert.equal(firstPool.clients.length, 1);
+
+  const retryable = Object.assign(new Error("serialization conflict"), { code: "40001" });
+  const boundedPool = new FakePool(() =>
+    new FakePoolClient((text) => {
+      if (text === "SELECT mutation") throw retryable;
+      return { rows: [], rowCount: 0 };
+    }),
+  );
+  await assert.rejects(
+    withSerializablePoolTransaction(
+      boundedPool,
+      async (transaction) => {
+        await transaction.query("SELECT mutation");
+      },
+      { maxAttempts: 2 },
+    ),
+    (error: unknown) => error === retryable,
+  );
+  assert.equal(boundedPool.clients.length, 2);
+  await assert.rejects(
+    withSerializablePoolTransaction(boundedPool, async () => undefined, { maxAttempts: 0 }),
+    /maxAttempts/,
+  );
+});
+
+test("a failed BEGIN discards the pool checkout without attempting unsafe work", async () => {
+  const beginFailure = Object.assign(new Error("begin failed"), { code: "08006" });
+  const pool = new FakePool(
+    () =>
+      new FakePoolClient((text) => {
+        if (text === "BEGIN ISOLATION LEVEL SERIALIZABLE") throw beginFailure;
+        return { rows: [], rowCount: 0 };
+      }),
+  );
+  let workCalled = false;
+  await assert.rejects(
+    withSerializablePoolTransaction(pool, async () => {
+      workCalled = true;
+    }),
+    (error: unknown) =>
+      error instanceof AggregateError &&
+      error.errors.length === 1 &&
+      error.errors[0] === beginFailure,
+  );
+  assert.equal(workCalled, false);
+  assert.equal(pool.clients.length, 1);
+  assert.deepEqual(
+    pool.clients[0].calls.map((call) => call.text),
+    ["BEGIN ISOLATION LEVEL SERIALIZABLE"],
+  );
+  assert.equal(pool.clients[0].releases.length, 1);
+  assert.ok(pool.clients[0].releases[0] instanceof AggregateError);
+
+  const readClient = new FakePostgresClient((text) => {
+    if (text === "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY") throw beginFailure;
+    return { rows: [], rowCount: 0 };
+  });
+  await assert.rejects(
+    withConsistentReadTransaction(readClient, async () => {
+      workCalled = true;
+    }),
+    (error: unknown) => error instanceof AggregateError && error.errors[0] === beginFailure,
+  );
+  assert.equal(workCalled, false);
+  assert.deepEqual(
+    readClient.calls.map((call) => call.text),
+    ["BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY"],
   );
 });
 
@@ -239,7 +422,9 @@ test("PostgreSQL migration preserves evidence and proposal-only invariants", () 
     runtimeSelectable: false,
     schemaAvailable: true,
     transactionContractAvailable: true,
+    createReadVerticalSliceAvailable: true,
+    liveConcurrencyGateAvailable: true,
     reason:
-      "ParimitService is synchronous and SQLite-specific; an async repository port and live PostgreSQL parity tests are still required.",
+      "ParimitService is still synchronous and SQLite-specific; approvals, envelopes, observations, integrity parity, operations, and runtime selection remain unported.",
   });
 });

@@ -46,6 +46,8 @@ const forbiddenNetworkModules = new Set([
   "superagent",
   "ky",
   "ws",
+  "pg",
+  "postgres",
 ]);
 
 // These files form the HTTP/identity edge. Everything else in src/ must remain

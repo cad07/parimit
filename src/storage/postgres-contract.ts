@@ -19,6 +19,16 @@ export interface PostgresClientLike {
   ): Promise<PostgresQueryResult<Row>>;
 }
 
+/** A checked-out pool client. Passing an error to release discards it. */
+export interface PostgresPoolClientLike extends PostgresClientLike {
+  release(error?: Error | boolean): void;
+}
+
+/** Structurally compatible with the subset of node-postgres Pool we use. */
+export interface PostgresPoolLike {
+  connect(): Promise<PostgresPoolClientLike>;
+}
+
 declare const transactionClient: unique symbol;
 
 /** A client that is known to be inside one of this module's transactions. */
@@ -48,16 +58,28 @@ async function rollbackAfterFailure(client: PostgresClientLike, originalError: u
   throw originalError;
 }
 
+async function beginTransaction(client: PostgresClientLike, statement: string): Promise<void> {
+  try {
+    await client.query(statement);
+  } catch (error) {
+    // A failed BEGIN gives us no trustworthy transaction state. Pool callers
+    // recognize AggregateError and destroy this checkout rather than reuse it.
+    throw new AggregateError(
+      [error],
+      "PostgreSQL transaction could not begin; discard this connection",
+    );
+  }
+}
+
 /**
- * Mutations use SERIALIZABLE and must retry the entire callback after SQLSTATE
- * 40001 or 40P01. A retry belongs in the eventual edge adapter so it can be
- * bounded, observed, and coupled to request idempotency.
+ * Mutations use SERIALIZABLE. Retry policy belongs in the pool adapter so the
+ * complete callback can be bounded, observed, and coupled to idempotency.
  */
 export async function withSerializableWriteTransaction<T>(
   client: PostgresClientLike,
   work: (transaction: PostgresTransactionClient) => Promise<T>,
 ): Promise<T> {
-  await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+  await beginTransaction(client, "BEGIN ISOLATION LEVEL SERIALIZABLE");
   try {
     const result = await work(client as PostgresTransactionClient);
     await client.query("COMMIT");
@@ -67,12 +89,90 @@ export async function withSerializableWriteTransaction<T>(
   }
 }
 
+export interface SerializableRetryOptions {
+  maxAttempts?: number;
+  onRetry?: (details: {
+    attempt: number;
+    nextAttempt: number;
+    sqlState: "40001" | "40P01" | "23505";
+    constraint?: "audit_events_no_forks";
+  }) => void;
+}
+
+function sqlState(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  return typeof error.code === "string" ? error.code : undefined;
+}
+
+export function isRetryablePostgresTransactionError(error: unknown): boolean {
+  const code = sqlState(error);
+  if (code === "40001" || code === "40P01") return true;
+  // Two SERIALIZABLE transactions can take their snapshots before the second
+  // waits on the parent intent lock. The database's no-forks constraint then
+  // reports the stale audit predecessor as this one exact unique violation.
+  // It is safe only as a whole-transaction retry, never as a statement retry.
+  return (
+    code === "23505" &&
+    typeof error === "object" &&
+    error !== null &&
+    "schema" in error &&
+    error.schema === "parimit" &&
+    "table" in error &&
+    error.table === "audit_events" &&
+    "constraint" in error &&
+    error.constraint === "audit_events_no_forks"
+  );
+}
+
+/**
+ * Acquire a fresh pool checkout for each complete SERIALIZABLE attempt. The
+ * pool may return the same physical connection after release, but every attempt
+ * begins a new transaction. Retrying an individual statement could combine
+ * decisions from different snapshots, so only the whole idempotent transaction
+ * is retried.
+ */
+export async function withSerializablePoolTransaction<T>(
+  pool: PostgresPoolLike,
+  work: (transaction: PostgresTransactionClient) => Promise<T>,
+  options: SerializableRetryOptions = {},
+): Promise<T> {
+  const maxAttempts = options.maxAttempts ?? 3;
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 10) {
+    throw new RangeError("maxAttempts must be an integer between 1 and 10");
+  }
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const client = await pool.connect();
+    let discard: Error | undefined;
+    try {
+      return await withSerializableWriteTransaction(client, work);
+    } catch (error) {
+      if (error instanceof AggregateError) {
+        discard = error;
+      }
+      if (!isRetryablePostgresTransactionError(error) || attempt === maxAttempts) {
+        throw error;
+      }
+      options.onRetry?.({
+        attempt,
+        nextAttempt: attempt + 1,
+        sqlState: sqlState(error) as "40001" | "40P01" | "23505",
+        ...(sqlState(error) === "23505" ? { constraint: "audit_events_no_forks" as const } : {}),
+      });
+    } finally {
+      client.release(discard);
+    }
+  }
+
+  throw new Error("Unreachable PostgreSQL retry state");
+}
+
 /** Integrity verification must see one database snapshot, not mixed commits. */
 export async function withConsistentReadTransaction<T>(
   client: PostgresClientLike,
   work: (transaction: PostgresTransactionClient) => Promise<T>,
 ): Promise<T> {
-  await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+  await beginTransaction(client, "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
   try {
     const result = await work(client as PostgresTransactionClient);
     await client.query("COMMIT");
@@ -216,13 +316,16 @@ export async function appendAuditEvent(
 }
 
 /**
- * This is an integration track, not a runtime feature flag. It becomes true
- * only after the async service port and live PostgreSQL parity suite land.
+ * This is integration-track metadata, not a runtime feature flag.
+ * runtimeSelectable must remain false until the complete async service port
+ * and live PostgreSQL parity suite land.
  */
 export const POSTGRES_RUNTIME_SUPPORT = Object.freeze({
   runtimeSelectable: false,
   schemaAvailable: true,
   transactionContractAvailable: true,
+  createReadVerticalSliceAvailable: true,
+  liveConcurrencyGateAvailable: true,
   reason:
-    "ParimitService is synchronous and SQLite-specific; an async repository port and live PostgreSQL parity tests are still required.",
+    "ParimitService is still synchronous and SQLite-specific; approvals, envelopes, observations, integrity parity, operations, and runtime selection remain unported.",
 });

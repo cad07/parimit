@@ -9,7 +9,11 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-COPY --chown=node:node package.json tsconfig.json LICENSE NOTICE ./
+COPY --chown=node:node package.json package-lock.json tsconfig.json LICENSE NOTICE ./
+
+# The application has no third-party production dependency. npm ci still
+# verifies that the committed lockfile and package metadata agree.
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 COPY --chown=node:node src ./src
 COPY --chown=node:node public ./public

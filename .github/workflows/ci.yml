@@ -27,3 +27,41 @@ jobs:
         run: npm run check
       - name: Build container
         run: docker build --tag parimit:${{ github.sha }} .
+
+  postgres-foundation:
+    name: PostgreSQL 17 live concurrency gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+        env:
+          POSTGRES_PASSWORD: parimit_ci_test_only
+          POSTGRES_DB: parimit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d parimit_test"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+    env:
+      PARIMIT_TEST_POSTGRES_URL: postgresql://postgres:parimit_ci_test_only@127.0.0.1:5432/parimit_test
+      PARIMIT_ALLOW_POSTGRES_TEST_DDL: I_UNDERSTAND_THIS_DATABASE_WILL_BE_MODIFIED
+      PARIMIT_ALLOW_PRIVATE_CONTAINER_POSTGRES: I_UNDERSTAND_THE_TEST_DATABASE_USES_A_PRIVATE_CONTAINER_ADDRESS
+      PARIMIT_REQUIRE_POSTGRES_LIVE: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install the test-only PostgreSQL driver
+        run: npm ci --ignore-scripts
+      - name: Verify migration manifest consistency
+        run: npm run check:postgres-migrations
+      - name: Run live PostgreSQL races
+        run: npm run test:postgres
