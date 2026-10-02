@@ -27,8 +27,9 @@
     "pilot:keycloak:accept": "node --experimental-strip-types scripts/run-keycloak-pilot.ts",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "test:sdk": "node --experimental-strip-types --test sdk/typescript/tests/*.test.ts",
+    "check:site": "node scripts/check-site.mjs",
     "check:boundary": "node --experimental-strip-types scripts/check-boundary.ts",
-    "check": "node --experimental-strip-types --test tests/*.test.ts && node --experimental-strip-types --test sdk/typescript/tests/*.test.ts && node --experimental-strip-types scripts/check-boundary.ts"
+    "check": "node --experimental-strip-types --test tests/*.test.ts && node --experimental-strip-types --test sdk/typescript/tests/*.test.ts && node --experimental-strip-types scripts/check-boundary.ts && node scripts/check-site.mjs"
   },
   "keywords": [
     "ai-agents",

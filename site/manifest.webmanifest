@@ -1,0 +1,17 @@
+{
+  "name": "Parimit",
+  "short_name": "Parimit",
+  "description": "Bounded authority for agent payment proposals.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f7f6f0",
+  "theme_color": "#123d31",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
