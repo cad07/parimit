@@ -27,6 +27,7 @@ requireText(html, "16/16", "published smoke result");
 requireText(html, "no-script-nav", "no-JavaScript navigation fallback");
 requireText(css, "prefers-reduced-motion", "reduced-motion support");
 requireText(script, "IntersectionObserver", "progressive reveal behavior");
+requireText(html, "https://parimit.otlo.ai/", "custom domain metadata");
 
 if (manifest.start_url !== "./") {
   failures.push("manifest start_url must remain relative for project Pages");

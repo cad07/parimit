@@ -11,7 +11,7 @@
   "bugs": {
     "url": "https://github.com/cad07/parimit/issues"
   },
-  "homepage": "https://github.com/cad07/parimit#readme",
+  "homepage": "https://parimit.otlo.ai/",
   "engines": {
     "node": ">=24"
   },

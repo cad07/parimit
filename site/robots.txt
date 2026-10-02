@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://cad07.github.io/parimit/sitemap.xml
+Sitemap: https://parimit.otlo.ai/sitemap.xml
